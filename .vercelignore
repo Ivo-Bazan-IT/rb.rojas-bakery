@@ -1,0 +1,16 @@
+# Lo que nunca se sube a Vercel con `vercel deploy` desde la PC (además de lo que ignora Vercel por defecto).
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+*.db
+*.db-journal
+back/uploads
+back/prisma/negocio.local.json
+**/node_modules
+**/dist
+.claude
+.playwright-mcp
+*.log

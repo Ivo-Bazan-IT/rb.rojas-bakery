@@ -21,10 +21,10 @@ import { ControladorPedidos, ServicioPedidos } from './modules/pedidos.ts';
 import { ControladorListas, ServicioListas } from './modules/compras.ts';
 import { ControladorResumen, ServicioResumen } from './modules/resumen.ts';
 import { ControladorFotos, ServicioFotos } from './modules/fotos.ts';
-import { AlmacenFotos } from './core/AlmacenFotos.ts';
+import { crearAlmacen } from './core/AlmacenFotos.ts';
 import { fileURLToPath } from 'node:url';
 
-/** Carpeta de fotos: FOTOS_DIR o back/uploads. */
+/** Carpeta de fotos en disco (desarrollo): FOTOS_DIR o back/uploads. En Vercel se usa Blob. */
 const DIR_FOTOS = process.env.FOTOS_DIR ?? fileURLToPath(new URL('../uploads', import.meta.url));
 
 export class App {
@@ -36,8 +36,10 @@ export class App {
   constructor(db: Db) {
     this.db = db;
     this.auth = new ServicioAuth(db);
-    this.fotos = new ServicioFotos(db, new AlmacenFotos(DIR_FOTOS));
+    this.fotos = new ServicioFotos(db, crearAlmacen(DIR_FOTOS));
     this.express.disable('x-powered-by');
+    // Detrás del proxy de Vercel: req.ip sale de X-Forwarded-For (lo usa el freno de intentos de login).
+    this.express.set('trust proxy', true);
     this.express.use(express.json({ limit: '2mb' }));
     this.express.use(cookieParser());
     this.express.get('/api/salud', (_req, res) => { res.json({ ok: true }); });
@@ -83,7 +85,7 @@ export class App {
       if (err.code === 'P2003') { res.status(409).json({ error: 'El registro está en uso y no se puede borrar.' }); return; }
     }
     const tipo = (err as { type?: string }).type;
-    if (tipo === 'entity.too.large') { res.status(413).json({ error: 'El archivo es demasiado grande (máximo 6 MB).' }); return; }
+    if (tipo === 'entity.too.large') { res.status(413).json({ error: 'El archivo es demasiado grande (máximo 4 MB).' }); return; }
     if (err instanceof SyntaxError && 'body' in err) { res.status(400).json({ error: 'El cuerpo de la petición no es JSON válido.' }); return; }
     console.error(err);
     res.status(500).json({ error: 'Algo salió mal. Probá de nuevo en un rato.' });

@@ -59,5 +59,7 @@ desktop.ini
 *.suo
 
 # --- Herramientas locales ----------------------------------------
+# Vínculo con el proyecto de Vercel (se regenera con `vercel link`).
+.vercel/
 .claude/
 .playwright-mcp/

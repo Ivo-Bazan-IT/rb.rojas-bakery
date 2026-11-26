@@ -45,7 +45,7 @@ export class ServicioProductos extends ServicioCatalogo<ProductoConRecetas> {
   }
 
   protected where(f: Filtros) {
-    return { archivado: f.archivados ? undefined : false, ...(f.q ? { nombre: { contains: String(f.q) } } : {}), ...(f.tipo ? { tipo: String(f.tipo) } : {}) };
+    return { archivado: f.archivados ? undefined : false, ...(f.q ? { nombre: { contains: String(f.q), mode: 'insensitive' } } : {}), ...(f.tipo ? { tipo: String(f.tipo) } : {}) };
   }
 
   protected async guardar(id: number | null, datos: Record<string, unknown>) {

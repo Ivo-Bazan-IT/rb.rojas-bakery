@@ -1,15 +1,15 @@
 # Rojas Bakery · API
 
-Backend de costos, presupuestos y pedidos. Node + TypeScript + Express 5 + Prisma (SQLite por ahora).
+Backend de costos, presupuestos y pedidos. Node + TypeScript + Express 5 + Prisma + PostgreSQL (Neon). Fotos en Vercel Blob (producción) o en disco (desarrollo).
 
 ## Cómo correrlo
 
 ```bash
 cd back
 npm install
-cp .env.example .env    # completá los valores (el .env nunca se sube)
-npx prisma db push      # crea prisma/dev.db con el esquema
-npm run db:seed         # usuaria, datos del negocio, configuración y zonas de envío
+cp .env.example .env    # completá los valores (el .env nunca se sube); DATABASE_URL = base de DESARROLLO
+npm run db:migrate      # crea o actualiza las tablas (migraciones de prisma/migrations)
+npm run db:seed         # usuaria, datos del negocio, configuración y zonas de envío (si la base está vacía)
 npm run dev             # API en http://localhost:3001/api
 npm test                # tests del motor de cálculo (casos 1, 2 y 3 + bordes)
 ```
@@ -18,9 +18,33 @@ Login: el email y la contraseña de `SEED_EMAIL` / `SEED_PASSWORD` en `.env`. Lo
 
 **Variables de entorno:** ver `.env.example`. En producción (`NODE_ENV=production`) `JWT_SECRET` es obligatorio y tiene que tener al menos 32 caracteres.
 
-Para empezar de cero: borrá `prisma/dev.db` (y `uploads/` si querés sacar las fotos), corré `npx prisma db push` y `npm run db:seed`.
+Para empezar de cero **en la base de desarrollo**: `npm run db:reset` (borra todo, vuelve a aplicar las migraciones y corre el seed). Nunca lo corras con la URL de producción.
 
-**Pasar a PostgreSQL:** en `prisma/schema.prisma` cambiá `provider = "sqlite"` por `"postgresql"`. Después poné la URL en `.env` (`DATABASE_URL="postgresql://usuario:clave@localhost:5432/rojas_bakery"`) y corré `npx prisma db push`.
+## Producción en Vercel
+
+Proyecto `rb-rojas-bakery` (Vercel Services, en Beta): el frontend (`app/`) y esta API (`back/`, entrada `src/index.ts`) se despliegan juntos; `/api/*` va a la API y el resto a la app (ver `vercel.json`). Funciones en São Paulo (`gru1`).
+
+| Recurso | Producción | Preview y desarrollo (tu PC) |
+| --- | --- | --- |
+| Base PostgreSQL (Neon, región gru1) | `rb-rojas-bakery-prod` | `rb-rojas-bakery-dev` |
+| Fotos (Vercel Blob privado) | `rb-rojas-bakery-fotos` | `rb-rojas-bakery-fotos-dev` (tu PC usa la carpeta `uploads/`) |
+| `JWT_SECRET` | propio, *sensitive* | propio en Preview; en tu PC, el de `.env` |
+
+Las variables las inyecta Vercel (`DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `BLOB_READ_WRITE_TOKEN`, `JWT_SECRET`). Cada push a `main` despliega producción; cada rama o PR, una preview.
+
+**Cambios en el esquema de la base:**
+
+```bash
+npm run db:migrate:nueva -- --name descripcion   # crea la migración en prisma/migrations (contra la base de desarrollo)
+npm run db:migrate                                # la aplica (desarrollo)
+# producción, antes del deploy que la necesita:
+vercel env pull ../.env.prod --environment=production --yes
+node --env-file=../.env.prod node_modules/prisma/build/index.js migrate deploy
+rm ../.env.prod
+```
+
+**Scripts de migración** (los que se usaron para pasar de SQLite a PostgreSQL): `scripts/migrar-desde-sqlite.ts` copia una base SQLite a la de `DATABASE_URL` conservando los ids, y `scripts/subir-fotos.ts` sube la carpeta `uploads/` a Vercel Blob con los mismos nombres.
+
 
 ## Arquitectura
 

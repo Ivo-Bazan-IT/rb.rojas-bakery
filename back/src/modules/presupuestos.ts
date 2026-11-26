@@ -105,7 +105,7 @@ export class ServicioPresupuestos {
 
   async listar(f: { estado?: string; q?: string }) {
     const ps = await this.db.presupuesto.findMany({
-      where: { ...(f.estado ? { estado: f.estado } : {}), ...(f.q ? { clienteNombre: { contains: f.q } } : {}) },
+      where: { ...(f.estado ? { estado: f.estado } : {}), ...(f.q ? { clienteNombre: { contains: f.q, mode: 'insensitive' as const } } : {}) },
       include: incluir, orderBy: { numero: 'desc' },
     });
     return ps.map((p) => this.dto(p, false));

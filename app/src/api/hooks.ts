@@ -25,6 +25,10 @@ export function useLogin() {
   });
 }
 
+export const useCambiarPassword = () => useMutation({
+  mutationFn: (d: { actual: string; nueva: string }) => api.post<{ ok: true }>('/auth/cambiar-password', d),
+});
+
 export function useLogout() {
   const qc = useQueryClient();
   return useMutation({

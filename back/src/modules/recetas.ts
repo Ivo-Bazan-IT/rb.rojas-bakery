@@ -51,7 +51,7 @@ export class ServicioRecetas extends ServicioCatalogo<RecetaCompleta> {
   declare protected readonly repo: RepositorioRecetas;
 
   protected where(f: Filtros) {
-    return { archivado: f.archivados ? undefined : false, ...(f.q ? { nombre: { contains: String(f.q) } } : {}), ...(f.categoria ? { categoria: String(f.categoria) } : {}) };
+    return { archivado: f.archivados ? undefined : false, ...(f.q ? { nombre: { contains: String(f.q), mode: 'insensitive' } } : {}), ...(f.categoria ? { categoria: String(f.categoria) } : {}) };
   }
 
   /** Valida que cada insumo exista y que la unidad coincida (no se mezclan g con u). */

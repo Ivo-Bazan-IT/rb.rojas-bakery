@@ -4,7 +4,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import type { Db } from '../core/db.ts';
 import { Controlador } from '../core/Controlador.ts';
 import { Conflicto, DatosInvalidos, NoEncontrado } from '../core/errores.ts';
-import { AlmacenFotos, MAX_BYTES_FOTO, nombreDeUrl } from '../core/AlmacenFotos.ts';
+import { type Almacen, MAX_BYTES_FOTO, nombreDeUrl } from '../core/AlmacenFotos.ts';
 
 /** Cómo se lee y escribe la foto de cada recurso. */
 interface Recurso {
@@ -51,8 +51,8 @@ const RECURSOS: Record<string, Recurso> = {
 
 export class ServicioFotos {
   private readonly db: Db;
-  readonly almacen: AlmacenFotos;
-  constructor(db: Db, almacen: AlmacenFotos) { this.db = db; this.almacen = almacen; }
+  readonly almacen: Almacen;
+  constructor(db: Db, almacen: Almacen) { this.db = db; this.almacen = almacen; }
 
   private recurso(nombre: string) {
     const r = RECURSOS[nombre];
@@ -105,12 +105,12 @@ export class ControladorFotos extends Controlador {
     super();
     const crudo = express.raw({ type: ['image/*', 'application/octet-stream'], limit: MAX_BYTES_FOTO });
     this.router.get('/archivo/:nombre', (req: Request, res: Response, next: NextFunction) => {
-      const ruta = s.almacen.ruta(String(req.params.nombre));
-      if (!ruta) { next(new NoEncontrado('La foto')); return; }
-      // El nombre es único: si la foto cambia, cambia la URL. Se puede cachear sin miedo.
-      res.sendFile(ruta, { headers: { 'Cache-Control': 'private, max-age=31536000, immutable' } }, (err) => {
-        if (err && !res.headersSent) next(new NoEncontrado('La foto'));
-      });
+      s.almacen.leer(String(req.params.nombre)).then((archivo) => {
+        if (!archivo) { next(new NoEncontrado('La foto')); return; }
+        // El nombre es único: si la foto cambia, cambia la URL. El navegador la puede guardar sin miedo.
+        res.set({ 'Content-Type': archivo.mime, 'Cache-Control': 'private, max-age=31536000, immutable' });
+        archivo.stream.on('error', next).pipe(res);
+      }).catch(next);
     });
     this.router.put('/:recurso/:id', crudo, this.h((req) => {
       if (!Buffer.isBuffer(req.body)) throw new DatosInvalidos('Mandá una imagen JPG, PNG o WebP.');

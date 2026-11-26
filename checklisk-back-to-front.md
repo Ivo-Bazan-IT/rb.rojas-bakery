@@ -25,7 +25,7 @@ Reglas del proyecto (de `rojas-bakery-design/CLAUDE.md` y de lo que pidió el ne
 
 **Backend** en `back/`:
 
-- Node + TypeScript + Express 5 + Prisma. Base SQLite por ahora; se pasa a PostgreSQL cambiando una línea.
+- Node + TypeScript + Express 5 + Prisma + PostgreSQL (Neon). Desplegado en Vercel (ver back/README.md).
 - 18 tablas.
 - Arquitectura orientada a objetos con clases base reutilizables para los catálogos.
 - Login de una usuaria (bcrypt + JWT en cookie httpOnly).
@@ -47,7 +47,7 @@ Reglas del proyecto (de `rojas-bakery-design/CLAUDE.md` y de lo que pidió el ne
 cd back
 npm install
 cp .env.example .env    # solo la primera vez: completá los valores
-npx prisma db push      # solo la primera vez
+npm run db:migrate      # solo la primera vez (o tras una migración nueva)
 npm run db:seed         # solo la primera vez
 npm run dev
 
@@ -145,7 +145,7 @@ Precio = redondeo hacia arriba((ingredientes + servicios + gastos + mano de obra
 
 Orden sugerido:
 
-1. Publicación: git, PostgreSQL, hosting, dominio con HTTPS, backups y seguridad del login.
+1. Verificar producción, dominio propio (opcional) y backups.
 2. PWA y aviso de pedidos en el celular (necesitan HTTPS).
 3. Compartir el PDF por WhatsApp.
 4. Lo demás (presupuesto personalizado, cambio de contraseña, mejoras de mobile).
@@ -181,9 +181,9 @@ Orden sugerido:
 
 ## 2. Base de datos y API
 
-- [x] Esquema Prisma con todas las entidades (SQLite)
-- [ ] Pasar a PostgreSQL (cambiar el provider y la URL)
-- [ ] Migraciones versionadas (`prisma migrate`) antes de producción
+- [x] Esquema Prisma con todas las entidades
+- [x] PostgreSQL (Neon): base de producción y base de desarrollo separadas; montos sin el techo de 32 bits
+- [x] Migraciones versionadas (`prisma/migrations`, `npm run db:migrate`)
 - [x] CRUD de cada módulo con validación Zod
 - [x] Borrado seguro (archivar si está en uso)
 - [x] Fecha de última actualización de precio del insumo (aviso a los 30 días)
@@ -200,9 +200,10 @@ Orden sugerido:
 - [x] Login de una usuaria (bcrypt + JWT en cookie httpOnly, 30 días)
 - [x] Cierre de sesión
 - [x] Rutas protegidas en front y back
-- [ ] "Olvidé mi contraseña" y cambio de contraseña
+- [x] Cambio de contraseña desde la app (menú lateral y Más)
+- [ ] "Olvidé mi contraseña" (recuperación por email)
 - [x] Credenciales fuera del código: la usuaria inicial sale de `SEED_*` en `.env`; en producción el servidor no arranca sin `JWT_SECRET` (32+ caracteres)
-- [ ] Antes de publicar: usar una contraseña propia en producción y agregar rate limit al login
+- [x] Contraseña temporal fuerte en producción y freno de 5 intentos fallidos de login por IP cada 15 min
 
 ## 4. Imágenes y PDF
 
@@ -259,15 +260,17 @@ Base común en `app/src/components/Modal.tsx`: `<dialog>` nativo con fondo difum
 
 ## 7. Calidad, deploy y operación
 
-- [ ] Repositorio git
+- [x] Repositorio git (GitHub: Ivo-Bazan-IT/rb.rojas-bakery)
 - [x] Tests del motor (`npm test` en back)
 - [ ] Tests de API y de punta a punta en CI
-- [ ] Variables de entorno de producción
-- [ ] Hosting del front, el back y la base de datos
-- [ ] Dominio y HTTPS (necesario para PWA y push)
+- [x] Variables de entorno de producción (Vercel; JWT_SECRET sensitive)
+- [x] Hosting: Vercel (Services) + Neon + Vercel Blob, región São Paulo
+- [x] HTTPS en rb-rojas-bakery.vercel.app
+- [ ] Dominio propio (opcional)
 - [ ] Backups de la base de datos
 - [ ] Monitoreo de errores
-- [ ] Migración de los datos de la planilla actual
+- [x] Migración de los datos cargados en la PC a producción (datos y fotos)
+- [ ] Migración de los datos de la planilla actual (si hace falta)
 - [ ] Prueba con la planilla de alfajores en producción ($20.630)
 
 ## 8. V2

@@ -33,6 +33,7 @@ test('guarda, rechaza no-imágenes y limpia solo las huérfanas viejas', async (
     const huerfana = await a.guardar(PNG);
     const nueva = await a.guardar(WEBP);
     await assert.rejects(a.guardar(Buffer.from('hola')), /no es una imagen/);
+    await assert.rejects(a.guardar(Buffer.alloc(5 * 1024 * 1024, 0xff)), /más de 4 MB/);
     await assert.rejects(a.guardar({}), /Mandá una imagen/);
     const viejo = new Date(Date.now() - 2 * 3600_000);
     for (const u of [usada, huerfana]) await utimes(path.join(dir, nombreDeUrl(u)!), viejo, viejo);

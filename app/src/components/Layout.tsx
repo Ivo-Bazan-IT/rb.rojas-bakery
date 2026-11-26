@@ -6,6 +6,8 @@ import { Icon, type IconName } from './Icon';
 import { IconButton } from './ui';
 import logoMarca from '../design/assets/logo-rb-rojo.png';
 import { Campana } from '../modales/Campana';
+import { ModalPassword } from '../modales/ModalPassword';
+import { useModal } from './Modal';
 
 const GRUPOS: { titulo?: string; links: { to: string; label: string; icon: IconName; match?: string }[] }[] = [
   { links: [{ to: '/', label: 'Inicio', icon: 'inicio' }] },
@@ -39,6 +41,7 @@ export function useCerrarSesion() {
 
 function Sidebar() {
   const logo = useLogo(logoMarca);
+  const password = useModal();
   const { pathname } = useLocation();
   const cerrar = useCerrarSesion();
   const { data: u } = useUsuario();
@@ -71,8 +74,10 @@ function Sidebar() {
       <div className="sidebar__cuenta">
         <span className="avatar"><Icon name="usuario" size={18} /></span>
         <span className="sidebar__cuenta-texto ellipsis" title={u?.email}>{u?.nombre ?? 'Mi cuenta'}</span>
+        <IconButton icon="candado" label="Cambiar contraseña" onClick={() => password.abrir()} />
         <IconButton icon="salir" label="Cerrar sesión" onClick={cerrar} />
       </div>
+      <ModalPassword abierto={password.abierto} onCerrar={password.cerrar} />
     </aside>
   );
 }

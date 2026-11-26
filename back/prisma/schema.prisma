@@ -1,15 +1,19 @@
-// Rojas Bakery · esquema de la base de datos.
-// Reglas: montos en centavos enteros (Int). Porcentajes y factores en Float.
-// Los "enums" se guardan como String y se validan en el dominio (SQLite no tiene enums;
-// al pasar a PostgreSQL alcanza con cambiar el provider).
+// Rojas Bakery · esquema de la base de datos (PostgreSQL: Neon en Vercel).
+// Reglas: montos en centavos enteros, guardados como Float (double precision): exactos hasta
+// 9 billones de centavos, sin el techo de $21,4 millones de un Int de 32 bits. La API valida
+// que sean enteros. Porcentajes y factores también en Float.
+// Los "enums" se guardan como String y se validan en el dominio.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // native = tu PC; rhel-openssl-3.0.x = funciones de Vercel
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // con pooling (lo usa la app)
+  directUrl = env("DATABASE_URL_UNPOOLED") // conexión directa (migraciones)
 }
 
 // ---------- Cuenta y negocio ----------
@@ -44,9 +48,9 @@ model Negocio {
 model Configuracion {
   id                Int      @id @default(1)
   margenPct         Float    @default(30)
-  redondeoTorta     Int      @default(10000) // centavos ($100)
-  redondeoMesaDulce Int      @default(10000) // centavos, se aplica sobre el total
-  valorHora         Int? // centavos; null = sin cargar
+  redondeoTorta     Float    @default(10000) // centavos ($100)
+  redondeoMesaDulce Float    @default(10000) // centavos, se aplica sobre el total
+  valorHora         Float? // centavos; null = sin cargar
   horasLaborales    Int? // horas del mes; null = sin cargar
   horasMesServicios Int      @default(720) // divisor de los servicios compartidos
   senaPct           Float    @default(30)
@@ -61,7 +65,7 @@ model Insumo {
   nombre              String
   unidad              String // kg | litro | unidad
   presentacion        Float // en kg, L o unidades (ej. 0,2 kg)
-  precio              Int // centavos de la presentación
+  precio              Float // centavos de la presentación
   mermaPct            Float               @default(0)
   fotoUrl             String?
   precioActualizadoAt DateTime            @default(now())
@@ -144,7 +148,7 @@ model ProductoVariante {
 model GastoFijo {
   id        Int      @id @default(autoincrement())
   nombre    String
-  monto     Int // centavos por mes
+  monto     Float // centavos por mes
   tipo      String // compartido | exclusivo
   factor    Float    @default(1) // solo compartidos
   usaHoras  String   @default("trabajo") // trabajo | horno (solo compartidos)
@@ -157,7 +161,7 @@ model GastoFijo {
 model Equipo {
   id            Int      @id @default(autoincrement())
   nombre        String
-  valor         Int // centavos
+  valor         Float // centavos
   vidaUtilAnios Float
   activo        Boolean  @default(true)
   createdAt     DateTime @default(now())
@@ -167,7 +171,7 @@ model Equipo {
 model Extra {
   id        Int      @id @default(autoincrement())
   nombre    String
-  precio    Int // centavos, precio final
+  precio    Float // centavos, precio final
   activo    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -176,7 +180,7 @@ model Extra {
 model ZonaEnvio {
   id        Int      @id @default(autoincrement())
   nombre    String
-  precio    Int? // centavos, precio final; null = sin cargar
+  precio    Float? // centavos, precio final; null = sin cargar
   esRetiro  Boolean  @default(false)
   orden     Int      @default(0)
   activo    Boolean  @default(true)
@@ -190,7 +194,7 @@ model ZonaEnvio {
 model Presupuesto {
   id                Int                @id @default(autoincrement())
   numero            Int                @unique
-  estado            String             @default("borrador") // borrador | enviado | convertido | vencido
+  estado            String             @default("borrador") // borrador | enviado | convertido | cancelado ("vencido" se calcula)
   clienteNombre     String             @default("")
   clienteTelefono   String             @default("")
   direccion         String             @default("")
@@ -205,12 +209,12 @@ model Presupuesto {
   detalle           String             @default("")
   fotoReferenciaUrl String?
   zonaEnvioId       Int?
-  precioProducto    Int                @default(0)
-  total             Int                @default(0)
+  precioProducto    Float              @default(0)
+  total             Float              @default(0)
   senaPct           Float              @default(0)
-  sena              Int                @default(0)
-  saldo             Int                @default(0)
-  porPorcion        Int? // o por unidad en mesa dulce
+  sena              Float              @default(0)
+  saldo             Float              @default(0)
+  porPorcion        Float? // o por unidad en mesa dulce
   porcionesMin      Int?
   porcionesMax      Int?
   calculo           String             @default("{}") // JSON: costos internos + config (nunca va al PDF)
@@ -228,7 +232,7 @@ model PresupuestoLinea {
   presupuestoId Int
   tipo          String // producto | extra | envio
   descripcion   String
-  precio        Int // centavos
+  precio        Float // centavos
   orden         Int         @default(0)
   presupuesto   Presupuesto @relation(fields: [presupuestoId], references: [id], onDelete: Cascade)
 }

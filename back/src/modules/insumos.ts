@@ -35,7 +35,7 @@ export class ServicioInsumos extends ServicioCatalogo<Insumo> {
   declare protected readonly repo: RepositorioInsumos;
 
   protected where(f: Filtros) {
-    return { archivado: f.archivados ? undefined : false, ...(f.q ? { nombre: { contains: String(f.q) } } : {}), ...(f.unidad ? { unidad: String(f.unidad) } : {}) };
+    return { archivado: f.archivados ? undefined : false, ...(f.q ? { nombre: { contains: String(f.q), mode: 'insensitive' } } : {}), ...(f.unidad ? { unidad: String(f.unidad) } : {}) };
   }
 
   protected async antesDeActualizar(actual: Insumo, datos: Record<string, unknown>) {
