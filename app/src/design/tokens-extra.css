@@ -1,0 +1,8 @@
+/* Colores que usan las maquetas y no están en tokens.css. Pendiente: confirmarlos y pasarlos a tokens.css. */
+:root {
+  --rb-columna: #FBEDEC;        /* fondo de columnas del kanban */
+  --rb-crema-borde: #F3DDBF;    /* borde de alertas crema */
+  --rb-grafico-3: #E58E95;      /* composición del costo: gastos del negocio */
+  --rb-grafico-4: #F6C3C6;      /* composición del costo: servicios */
+  --rb-sombra-modal: 0 24px 60px rgba(59, 30, 34, 0.20); /* modales y avisos flotantes */
+}

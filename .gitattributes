@@ -1,0 +1,6 @@
+# Finales de línea LF en el repositorio (el servidor de producción es Linux).
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ttf binary
+*.xlsx binary

@@ -1,0 +1,272 @@
+// Rojas Bakery · esquema de la base de datos.
+// Reglas: montos en centavos enteros (Int). Porcentajes y factores en Float.
+// Los "enums" se guardan como String y se validan en el dominio (SQLite no tiene enums;
+// al pasar a PostgreSQL alcanza con cambiar el provider).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Cuenta y negocio ----------
+
+model Usuario {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  nombre       String
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+/// Fila única (id = 1). Datos que salen en el PDF.
+model Negocio {
+  id          Int      @id @default(1)
+  nombre      String   @default("Rojas Bakery")
+  instagram   String   @default("")
+  whatsapp    String   @default("")
+  zona        String   @default("")
+  mediosPago  String   @default("")
+  alias       String   @default("")
+  cbu         String   @default("")
+  validezDias Int      @default(7)
+  politicas   String   @default("")
+  cuidados    String   @default("")
+  logoUrl     String?
+  updatedAt   DateTime @updatedAt
+}
+
+/// Fila única (id = 1). Parámetros del motor de cálculo.
+model Configuracion {
+  id                Int      @id @default(1)
+  margenPct         Float    @default(30)
+  redondeoTorta     Int      @default(10000) // centavos ($100)
+  redondeoMesaDulce Int      @default(10000) // centavos, se aplica sobre el total
+  valorHora         Int? // centavos; null = sin cargar
+  horasLaborales    Int? // horas del mes; null = sin cargar
+  horasMesServicios Int      @default(720) // divisor de los servicios compartidos
+  senaPct           Float    @default(30)
+  avisoDias         Int      @default(5)
+  updatedAt         DateTime @updatedAt
+}
+
+// ---------- Catálogo ----------
+
+model Insumo {
+  id                  Int                 @id @default(autoincrement())
+  nombre              String
+  unidad              String // kg | litro | unidad
+  presentacion        Float // en kg, L o unidades (ej. 0,2 kg)
+  precio              Int // centavos de la presentación
+  mermaPct            Float               @default(0)
+  fotoUrl             String?
+  precioActualizadoAt DateTime            @default(now())
+  archivado           Boolean             @default(false)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  usos                RecetaIngrediente[]
+  itemsCompra         ListaCompraItem[]
+}
+
+model RecetaBase {
+  id           Int                 @id @default(autoincrement())
+  nombre       String
+  categoria    String // bizcochos | rellenos | ganache | forrados | decoraciones
+  escala       String              @default("volumen") // volumen | superficie | ninguna
+  rendimiento  Float? // unidades por tanda (mesa dulce); null en tortas
+  trabajoMin   Int                 @default(0)
+  hornoMin     Int                 @default(0)
+  notas        String              @default("")
+  archivado    Boolean             @default(false)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  ingredientes RecetaIngrediente[]
+  usadaEn      ProductoReceta[]
+}
+
+model RecetaIngrediente {
+  id       Int        @id @default(autoincrement())
+  recetaId Int
+  insumoId Int
+  cantidad Float // en g, ml o u según la unidad del insumo
+  receta   RecetaBase @relation(fields: [recetaId], references: [id], onDelete: Cascade)
+  insumo   Insumo     @relation(fields: [insumoId], references: [id])
+
+  @@unique([recetaId, insumoId])
+}
+
+model Producto {
+  id                  Int                @id @default(autoincrement())
+  nombre              String
+  tipo                String // torta | budin | mesa_dulce
+  descripcion         String             @default("")
+  fotoUrl             String?
+  armadoMin           Int                @default(0) // tortas y budines
+  decoracionMinUnidad Int                @default(0) // mesa dulce, por unidad
+  porcionesMin        Int? // budines: porciones de referencia
+  porcionesMax        Int?
+  archivado           Boolean            @default(false)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  recetas             ProductoReceta[]
+  variantes           ProductoVariante[]
+  presupuestos        Presupuesto[]
+}
+
+model ProductoReceta {
+  id         Int        @id @default(autoincrement())
+  productoId Int
+  recetaId   Int
+  rol        String     @default("base") // base | forrado_buttercream | forrado_pasta
+  cantidad   Float      @default(1) // recetas por producto (tortas) o por tanda (mesa dulce)
+  producto   Producto   @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  receta     RecetaBase @relation(fields: [recetaId], references: [id])
+}
+
+/// Ajuste manual de tiempos por tamaño (los tiempos no escalan solos).
+model ProductoVariante {
+  id               Int      @id @default(autoincrement())
+  productoId       Int
+  tamano           Int // 18 | 20 | 22
+  ajusteTrabajoMin Int      @default(0)
+  ajusteHornoMin   Int      @default(0)
+  producto         Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+
+  @@unique([productoId, tamano])
+}
+
+// ---------- Costos ----------
+
+model GastoFijo {
+  id        Int      @id @default(autoincrement())
+  nombre    String
+  monto     Int // centavos por mes
+  tipo      String // compartido | exclusivo
+  factor    Float    @default(1) // solo compartidos
+  usaHoras  String   @default("trabajo") // trabajo | horno (solo compartidos)
+  detalle   String   @default("")
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Equipo {
+  id            Int      @id @default(autoincrement())
+  nombre        String
+  valor         Int // centavos
+  vidaUtilAnios Float
+  activo        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Extra {
+  id        Int      @id @default(autoincrement())
+  nombre    String
+  precio    Int // centavos, precio final
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ZonaEnvio {
+  id        Int      @id @default(autoincrement())
+  nombre    String
+  precio    Int? // centavos, precio final; null = sin cargar
+  esRetiro  Boolean  @default(false)
+  orden     Int      @default(0)
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ---------- Ventas ----------
+
+/// Al generarse guarda un snapshot: los montos no se recalculan después.
+model Presupuesto {
+  id                Int                @id @default(autoincrement())
+  numero            Int                @unique
+  estado            String             @default("borrador") // borrador | enviado | convertido | vencido
+  clienteNombre     String             @default("")
+  clienteTelefono   String             @default("")
+  direccion         String             @default("")
+  fechaEntrega      DateTime?
+  horaEntrega       String             @default("")
+  productoId        Int?
+  productoNombre    String             @default("")
+  tipoProducto      String? // torta | budin | mesa_dulce
+  tamano            Int?
+  forrado           String? // buttercream | pasta
+  cantidad          Int? // mesa dulce: 4 a 36
+  detalle           String             @default("")
+  fotoReferenciaUrl String?
+  zonaEnvioId       Int?
+  precioProducto    Int                @default(0)
+  total             Int                @default(0)
+  senaPct           Float              @default(0)
+  sena              Int                @default(0)
+  saldo             Int                @default(0)
+  porPorcion        Int? // o por unidad en mesa dulce
+  porcionesMin      Int?
+  porcionesMax      Int?
+  calculo           String             @default("{}") // JSON: costos internos + config (nunca va al PDF)
+  emitidoAt         DateTime?
+  validoHasta       DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  producto          Producto?          @relation(fields: [productoId], references: [id])
+  lineas            PresupuestoLinea[]
+  pedido            Pedido?
+}
+
+model PresupuestoLinea {
+  id            Int         @id @default(autoincrement())
+  presupuestoId Int
+  tipo          String // producto | extra | envio
+  descripcion   String
+  precio        Int // centavos
+  orden         Int         @default(0)
+  presupuesto   Presupuesto @relation(fields: [presupuestoId], references: [id], onDelete: Cascade)
+}
+
+model Pedido {
+  id               Int         @id @default(autoincrement())
+  presupuestoId    Int         @unique
+  estado           String      @default("senado") // senado | realizado | pago | enviado | cancelado
+  fechaEntrega     DateTime
+  horaEntrega      String      @default("")
+  notas            String      @default("")
+  estadoCambiadoAt DateTime    @default(now())
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  presupuesto      Presupuesto @relation(fields: [presupuestoId], references: [id])
+}
+
+// ---------- Lista de compras ----------
+
+model ListaCompra {
+  id        Int               @id @default(autoincrement())
+  nombre    String
+  tipo      String // estandar | personalizada | pedidos
+  desde     DateTime?
+  hasta     DateTime?
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  items     ListaCompraItem[]
+}
+
+model ListaCompraItem {
+  id       Int         @id @default(autoincrement())
+  listaId  Int
+  insumoId Int?
+  nombre   String
+  cantidad Float
+  unidad   String // g | ml | u
+  comprado Boolean     @default(false)
+  lista    ListaCompra @relation(fields: [listaId], references: [id], onDelete: Cascade)
+  insumo   Insumo?     @relation(fields: [insumoId], references: [id])
+}

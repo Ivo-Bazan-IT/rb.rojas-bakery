@@ -1,0 +1,83 @@
+/* Rojas Bakery — tokens de diseño. Única fuente de colores, tipografía, espaciado y radios.
+   Importar una sola vez en el front (por ejemplo en src/main.tsx). No usar colores sueltos en componentes. */
+
+@font-face {
+  font-family: 'Fredoka';
+  src: url('./assets/fonts/Fredoka.ttf') format('truetype');
+  font-weight: 300 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Nunito';
+  src: url('./assets/fonts/Nunito.ttf') format('truetype');
+  font-weight: 200 1000;
+  font-display: swap;
+}
+
+:root {
+  /* Marca */
+  --rb-cereza: #FF3131;       /* logo, iconos, gráficos, títulos >= 24px. NO para texto chico (3,7:1) */
+  --rb-cereza-700: #C81E28;   /* botones primarios, enlaces, montos (5,7:1 sobre blanco) */
+  --rb-malva: #A8414F;        /* acento secundario, estado Realizado */
+
+  /* Texto */
+  --rb-tinta: #3B1E22;        /* texto principal (15:1) */
+  --rb-tinta-suave: #6E4F54;  /* texto secundario, iconos inactivos (7,2:1) */
+
+  /* Superficies */
+  --rb-rosa: #FFE5E5;         /* menú activo, chips, cabeceras */
+  --rb-rosa-50: #FFF4F3;      /* fondo de pantallas */
+  --rb-crema: #FFF2E1;        /* totales, alertas suaves */
+  --rb-blanco: #FFFFFF;       /* tarjetas, campos, barra de navegación */
+  --rb-linea: #F0D6D6;        /* divisores y bordes de tarjeta (decorativo) */
+  --rb-borde: #A0858A;        /* borde de campos de formulario (3:1) */
+
+  /* Estados de pedido: fondo / texto */
+  --rb-estado-presupuestado-bg: #EEEAEA; --rb-estado-presupuestado-fg: #5F5557;
+  --rb-estado-senado-bg: #FDEFD6;        --rb-estado-senado-fg: #8A5300;
+  --rb-estado-realizado-bg: #FFE5E5;     --rb-estado-realizado-fg: #A8414F;
+  --rb-estado-pago-bg: #E3F1E7;          --rb-estado-pago-fg: #2F6B47;
+  --rb-estado-enviado-bg: #E4EEF8;       --rb-estado-enviado-fg: #2C5A86;
+  --rb-estado-cancelado-bg: #EEEAEA;     --rb-estado-cancelado-fg: #5F5557;
+
+  /* Tipografía */
+  --rb-font-titulo: 'Fredoka', 'Nunito', system-ui, sans-serif;
+  --rb-font-texto: 'Nunito', system-ui, sans-serif;
+  --rb-text-display: 600 30px/38px var(--rb-font-titulo);          /* desktop */
+  --rb-text-display-mobile: 600 24px/32px var(--rb-font-titulo);
+  --rb-text-titulo: 600 19px/26px var(--rb-font-titulo);
+  --rb-text-numero: 600 26px/32px var(--rb-font-titulo);           /* + font-variant-numeric: tabular-nums */
+  --rb-text-body: 400 15px/22px var(--rb-font-texto);
+  --rb-text-body-strong: 800 15px/22px var(--rb-font-texto);
+  --rb-text-secundario: 600 13px/18px var(--rb-font-texto);
+  --rb-text-etiqueta: 700 12px/16px var(--rb-font-texto);          /* + uppercase, letter-spacing .06em */
+
+  /* Espaciado (grilla de 4/8) */
+  --rb-space-1: 4px;  --rb-space-2: 8px;  --rb-space-3: 12px; --rb-space-4: 16px;
+  --rb-space-6: 24px; --rb-space-8: 32px; --rb-space-12: 48px;
+  --rb-margen-mobile: 16px;
+  --rb-margen-desktop: 40px;
+  --rb-tactil-min: 44px;
+
+  /* Radios */
+  --rb-radio-control: 12px;   /* botones y campos */
+  --rb-radio-tarjeta: 16px;
+  --rb-radio-pill: 999px;     /* chips y estados */
+
+  /* Sombras: casi invisibles */
+  --rb-sombra-1: 0 1px 2px rgba(59, 30, 34, 0.05);
+  --rb-sombra-flotante: 0 4px 12px rgba(200, 30, 40, 0.30); /* solo el botón central de la barra mobile */
+
+  /* Layout */
+  --rb-ancho-sidebar: 248px;
+  --rb-alto-nav-mobile: 72px;
+  --rb-alto-control: 46px;
+  --rb-alto-boton: 48px;      /* 44px en desktop */
+}
+
+/* Breakpoints (mobile-first: estilos base = celular)
+   < 768px      barra inferior con 5 accesos, una columna
+   768–1023px   menú lateral reducido a iconos, dos columnas donde haya espacio
+   >= 1024px    menú lateral completo, tablas, kanban de 5 columnas, agenda semanal */
+
+html { font: var(--rb-text-body); color: var(--rb-tinta); background: var(--rb-rosa-50); }

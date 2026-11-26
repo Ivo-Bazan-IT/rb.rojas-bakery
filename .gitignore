@@ -1,0 +1,63 @@
+# ============================================================
+# Rojas Bakery — qué NO se sube al repositorio
+# La documentación técnica (*.md, rojas-bakery-design/, READMEs) SÍ se sube.
+# ============================================================
+
+# --- Secretos y configuración local ---------------------------
+# Claves, URL de la base y usuaria inicial. Se sube solo el .env.example.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Datos personales del negocio que usa el seed (WhatsApp, alias, CBU).
+# Se sube solo negocio.example.json.
+back/prisma/negocio.local.json
+
+# --- Datos de la app ------------------------------------------
+# Base de datos SQLite: tiene los datos reales y el hash de la contraseña.
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+# Fotos subidas desde la app (insumos, productos, presupuestos y logo).
+back/uploads/
+# Copias de seguridad y exportaciones
+*.backup
+*.bak
+*.dump
+backups/
+
+# --- Dependencias y compilados --------------------------------
+node_modules/
+dist/
+dist-ssr/
+build/
+coverage/
+*.tsbuildinfo
+.vite/
+
+# --- Logs ------------------------------------------------------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Sistema operativo y editores -------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.suo
+
+# --- Herramientas locales ----------------------------------------
+.claude/
+.playwright-mcp/

@@ -1,0 +1,4 @@
+Fredoka (fuente variable) y Nunito (fuente variable), descargadas del repositorio oficial de Google Fonts
+(https://github.com/google/fonts, carpetas ofl/fredoka y ofl/nunito).
+Ambas se distribuyen bajo la SIL Open Font License 1.1 (https://openfontlicense.org): se pueden usar,
+autoalojar y empaquetar en la app sin costo.

@@ -1,0 +1,12 @@
+{
+  "nombre": "Rojas Bakery",
+  "instagram": "@usuario",
+  "whatsapp": "+54 9 11 0000-0000",
+  "zona": "Barrio, Partido",
+  "mediosPago": "Efectivo o transferencia",
+  "alias": "alias.de.ejemplo",
+  "cbu": "0000000000000000000000",
+  "validezDias": 7,
+  "politicas": "Si cancelás el pedido, la seña no se devuelve.",
+  "cuidados": "Una vez entregado el producto, no nos hacemos responsables por accidentes."
+}
