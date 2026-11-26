@@ -3,7 +3,13 @@
 export type Unidad = 'kg' | 'litro' | 'unidad';
 export type TipoProducto = 'torta' | 'budin' | 'mesa_dulce';
 export type Forrado = 'buttercream' | 'pasta';
-export type Tamano = 18 | 20 | 22;
+/** Diámetro de una torta en cm. 20 es la referencia con la que se cargan las recetas. */
+export type Tamano = number;
+export const TAMANO_REFERENCIA = 20;
+export const TAMANO_MIN = 10;
+export const TAMANO_MAX = 40;
+/** Ingrediente suelto (fuera de las recetas base) de un producto o un presupuesto. */
+export interface InsumoSuelto { insumoId: number; cantidad: number }
 export type EstadoPedido = 'senado' | 'realizado' | 'pago' | 'enviado' | 'cancelado';
 export type EstadoPresupuesto = 'borrador' | 'enviado' | 'convertido' | 'vencido' | 'cancelado';
 export type Estado = EstadoPedido | 'presupuestado';
@@ -26,7 +32,7 @@ export interface Receta {
 }
 
 export interface PrecioCatalogo {
-  tamano?: Tamano; forrado?: Forrado | null; cantidad?: number;
+  tamano?: Tamano | null; forrado?: Forrado | null; cantidad?: number;
   precio: number; porPorcion: number | null; porciones: [number, number] | null; costoTotal: number; trabajoMin: number; hornoMin: number; avisos: string[];
 }
 
@@ -34,7 +40,9 @@ export interface Producto {
   id: number; nombre: string; tipo: TipoProducto; tipoLabel: string; descripcion: string; fotoUrl: string | null;
   armadoMin: number; decoracionMinUnidad: number; porcionesMin: number | null; porcionesMax: number | null; archivado: boolean;
   recetas: { id: number; recetaId: number; nombre: string; categoria: string; rol: string; cantidad: number; costo: number; trabajoMin: number; hornoMin: number; rendimiento: number | null }[];
-  variantes: { tamano: Tamano; ajusteTrabajoMin: number; ajusteHornoMin: number }[];
+  insumos: { id: number; insumoId: number; nombre: string; cantidad: number; unidad: string; costo: number }[];
+  /** Torta con una receta que no escala: tamaño y precio únicos. Es el nombre de esa receta. */
+  recetaSinEscala: string | null;
   precios: PrecioCatalogo[]; error: string | null;
 }
 
@@ -56,6 +64,8 @@ export interface ContextoCostos { serviciosPorHoraTrabajo: number; serviciosPorH
 export interface Calculo {
   ingredientes: number; servicios: number; gastosNegocio: number; manoDeObra: number; costoTotal: number; ganancia: number; precio: number;
   trabajoMin: number; hornoMin: number; porPorcion: number | null; porciones: [number, number] | null; unidades: number | null; tandas: number | null; avisos: string[];
+  tamano?: number | null; tamanoUnico?: boolean;
+  sueltos?: { insumoId: number; nombre: string; cantidad: number; unidad: string; costo: number; origen: 'producto' | 'presupuesto' }[];
 }
 export interface Cotizacion {
   producto: { id: number; nombre: string; tipo: TipoProducto };
@@ -72,6 +82,7 @@ export interface Presupuesto {
   clienteNombre: string; clienteTelefono: string; direccion: string; fechaEntrega: string | null; horaEntrega: string;
   productoId: number | null; productoNombre: string; tipoProducto: TipoProducto | null; tamano: Tamano | null; forrado: Forrado | null; cantidad: number | null;
   detalle: string; fotoReferenciaUrl: string | null; zonaEnvioId: number | null;
+  ajusteTrabajoMin: number; ajusteHornoMin: number; insumos: (InsumoSuelto & { nombre: string; unidad: string })[];
   precioProducto: number; total: number; senaPct: number; sena: number; saldo: number; porPorcion: number | null; porcionesMin: number | null; porcionesMax: number | null;
   emitidoAt: string | null; validoHasta: string | null; createdAt: string; lineas: LineaPresupuesto[]; pedido: { id: number } | null;
   calculo?: Calculo & { extras?: { id: number }[]; contexto?: { margenPct: number } };

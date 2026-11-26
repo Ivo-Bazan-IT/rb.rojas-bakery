@@ -2,9 +2,9 @@
    cuánto de cada receta usa y cuánto tiempo lleva; la base aplica la fórmula común.
 
    Precio = redondearArriba((ingredientes + servicios + gastos + mano de obra) × (1 + margen), múltiplo) */
-import { ContextoCostos, RecetaCosto } from './costos.ts';
+import { ContextoCostos, RecetaCosto, type IngredienteUso } from './costos.ts';
 import {
-  ESCALA_TORTA, MESA_DULCE_MAX, MESA_DULCE_MIN, redondearArriba, type Forrado, type RolReceta, type Tamano, type TipoProducto,
+  MESA_DULCE_MAX, MESA_DULCE_MIN, TAMANO_REFERENCIA, escalaTorta, redondearArriba, type Forrado, type RolReceta, type TipoProducto,
 } from './valores.ts';
 import { DomainError } from './errores.ts';
 
@@ -18,16 +18,37 @@ export interface ProductoCalculable {
   porcionesMin: number | null;
   porcionesMax: number | null;
   recetas: RecetaEnProducto[];
-  variantes: { tamano: number; ajusteTrabajoMin: number; ajusteHornoMin: number }[];
+  /** Ingredientes sueltos del producto. No escalan con el tamaño; en mesa dulce son por unidad. */
+  insumos?: IngredienteUso[];
 }
 
-export interface OpcionesCalculo { tamano?: Tamano; forrado?: Forrado; cantidad?: number }
+export interface OpcionesCalculo {
+  /** Tortas: diámetro en cm (20 = referencia). Se ignora si la torta es de tamaño único. */
+  tamano?: number;
+  forrado?: Forrado;
+  cantidad?: number;
+  /** Ingredientes sueltos que suma el presupuesto (cantidad fija). */
+  insumosExtra?: IngredienteUso[];
+  /** ± minutos de trabajo y de horno para este pedido. */
+  ajusteTrabajoMin?: number;
+  ajusteHornoMin?: number;
+}
+
+/** Una torta con alguna receta que no escala se vende en un único tamaño: la receta tal cual, sin escalar. */
+export function recetaSinEscala(p: Pick<ProductoCalculable, 'tipo' | 'recetas'>): string | null {
+  if (p.tipo !== 'torta') return null;
+  return p.recetas.find((r) => r.receta.escala === 'ninguna')?.receta.nombre ?? null;
+}
 
 export interface LineaReceta { nombre: string; rol: RolReceta; factor: number; costo: number; trabajoMin: number; hornoMin: number }
 export interface InsumoUsado { insumoId: number; nombre: string; cantidad: number; unidad: string }
+export interface LineaInsumo { insumoId: number; nombre: string; cantidad: number; unidad: string; costo: number; origen: 'producto' | 'presupuesto' }
 
 export interface ResultadoCalculo {
   tipo: TipoProducto;
+  /** Tortas: diámetro usado; null si es de tamaño único (o no es torta). */
+  tamano: number | null;
+  tamanoUnico: boolean;
   ingredientes: number;
   servicios: number;
   gastosNegocio: number;
@@ -44,6 +65,8 @@ export interface ResultadoCalculo {
   unidades: number | null;
   tandas: number | null;
   recetas: LineaReceta[];
+  /** Ingredientes sueltos (del producto y del presupuesto) ya multiplicados. */
+  sueltos: LineaInsumo[];
   insumos: InsumoUsado[];
   avisos: string[];
 }
@@ -61,21 +84,30 @@ export abstract class CalculadoraProducto {
   protected abstract redondeo(): number;
   protected abstract referencia(p: ProductoCalculable, o: OpcionesCalculo, precio: number):
     { porPorcion: number | null; porciones: [number, number] | null; unidades: number | null; tandas: number | null };
+  /** Cuántas veces entran los ingredientes sueltos del producto (1; en mesa dulce, las unidades). */
+  protected vecesInsumosProducto(_p: ProductoCalculable, _o: OpcionesCalculo) { return 1; }
+  protected tamanoUsado(_p: ProductoCalculable, _o: OpcionesCalculo): number | null { return null; }
 
   calcular(p: ProductoCalculable, o: OpcionesCalculo = {}): ResultadoCalculo {
     const consumos = this.consumos(p, o);
     const avisos = [...this.ctx.avisos];
-    if (!consumos.length) avisos.push(`${p.nombre} no tiene recetas base cargadas.`);
+    if (!consumos.length && !p.insumos?.length) avisos.push(`${p.nombre} no tiene recetas base cargadas.`);
 
     const recetas: LineaReceta[] = consumos.map((c) => ({
       nombre: c.receta.nombre, rol: c.rol, factor: c.factorIngredientes,
       costo: c.receta.costo * c.factorIngredientes,
       trabajoMin: c.receta.trabajoMin * c.vecesTiempo, hornoMin: c.receta.hornoMin * c.vecesTiempo,
     }));
+    const veces = this.vecesInsumosProducto(p, o);
+    const sueltos: LineaInsumo[] = [
+      ...(p.insumos ?? []).map((i) => this.lineaInsumo(i, i.cantidad * veces, 'producto')),
+      ...(o.insumosExtra ?? []).map((i) => this.lineaInsumo(i, i.cantidad, 'presupuesto')),
+    ];
     const extra = this.tiempoExtra(p, o);
-    const ingredientes = recetas.reduce((s, r) => s + r.costo, 0);
-    const trabajoMin = recetas.reduce((s, r) => s + r.trabajoMin, 0) + extra.trabajoMin;
-    const hornoMin = recetas.reduce((s, r) => s + r.hornoMin, 0) + extra.hornoMin;
+    const ingredientes = recetas.reduce((s, r) => s + r.costo, 0) + sueltos.reduce((s, i) => s + i.costo, 0);
+    // Los ajustes del presupuesto suman o restan, pero el tiempo nunca queda negativo.
+    const trabajoMin = Math.max(0, recetas.reduce((s, r) => s + r.trabajoMin, 0) + extra.trabajoMin + (o.ajusteTrabajoMin ?? 0));
+    const hornoMin = Math.max(0, recetas.reduce((s, r) => s + r.hornoMin, 0) + extra.hornoMin + (o.ajusteHornoMin ?? 0));
     const hTrabajo = trabajoMin / 60;
     const hHorno = hornoMin / 60;
 
@@ -86,53 +118,58 @@ export abstract class CalculadoraProducto {
     const conMargen = costoTotal * (1 + this.ctx.margen);
     const precio = redondearArriba(conMargen, this.redondeo());
 
+    const tamano = this.tamanoUsado(p, o);
     return {
-      tipo: p.tipo, ingredientes, servicios, gastosNegocio, manoDeObra, costoTotal,
+      tipo: p.tipo, tamano, tamanoUnico: p.tipo === 'torta' && tamano == null, ingredientes, servicios, gastosNegocio, manoDeObra, costoTotal,
       ganancia: costoTotal * this.ctx.margen, conMargen, precio, trabajoMin, hornoMin,
       ...this.referencia(p, o, precio),
-      recetas, insumos: this.sumarInsumos(consumos), avisos,
+      recetas, sueltos, insumos: this.sumarInsumos(consumos, sueltos), avisos,
     };
   }
 
+  private lineaInsumo(i: IngredienteUso, cantidad: number, origen: LineaInsumo['origen']): LineaInsumo {
+    return { insumoId: i.insumo.id, nombre: i.insumo.nombre, cantidad, unidad: i.insumo.unidadUso, costo: i.insumo.costoDe(cantidad), origen };
+  }
+
   /** Cantidades de insumos usadas (para la lista de compras). */
-  private sumarInsumos(consumos: Consumo[]): InsumoUsado[] {
+  private sumarInsumos(consumos: Consumo[], sueltos: LineaInsumo[]): InsumoUsado[] {
     const mapa = new Map<number, InsumoUsado>();
+    const sumar = (insumoId: number, nombre: string, unidad: string, cantidad: number) => {
+      const prev = mapa.get(insumoId) ?? { insumoId, nombre, cantidad: 0, unidad };
+      prev.cantidad += cantidad;
+      mapa.set(insumoId, prev);
+    };
     for (const c of consumos) {
-      for (const i of c.receta.ingredientes) {
-        const prev = mapa.get(i.insumo.id) ?? { insumoId: i.insumo.id, nombre: i.insumo.nombre, cantidad: 0, unidad: i.insumo.unidadUso };
-        prev.cantidad += i.cantidad * c.factorIngredientes;
-        mapa.set(i.insumo.id, prev);
-      }
+      for (const i of c.receta.ingredientes) sumar(i.insumo.id, i.insumo.nombre, i.insumo.unidadUso, i.cantidad * c.factorIngredientes);
     }
+    for (const i of sueltos) sumar(i.insumoId, i.nombre, i.unidad, i.cantidad);
     return [...mapa.values()];
   }
 }
 
-/** Tortas: recetas calibradas en 20 cm; bizcochos y rellenos escalan por volumen, el forrado por superficie. */
+/** Tortas: recetas calibradas en 20 cm; bizcochos y rellenos escalan por volumen, el forrado por superficie.
+    El diámetro se elige al presupuestar. Si alguna receta no escala, la torta es de tamaño único: todo va tal cual. */
 export class CalculadoraTorta extends CalculadoraProducto {
+  protected tamanoUsado(p: ProductoCalculable, o: OpcionesCalculo) {
+    return recetaSinEscala(p) ? null : (o.tamano ?? TAMANO_REFERENCIA);
+  }
   protected consumos(p: ProductoCalculable, o: OpcionesCalculo): Consumo[] {
-    const tamano = o.tamano ?? 20;
-    const esc = ESCALA_TORTA[tamano];
-    if (!esc) throw new DomainError('El tamaño tiene que ser 18, 20 o 22 cm.');
+    const tamano = this.tamanoUsado(p, o);
+    const esc = tamano == null ? null : escalaTorta(tamano);
     const forrados = p.recetas.filter((r) => r.rol !== 'base');
     const forrado = o.forrado ?? (forrados.some((r) => r.rol === 'forrado_buttercream') ? 'buttercream' : 'pasta');
     return p.recetas
       .filter((r) => r.rol === 'base' || r.rol === `forrado_${forrado}`)
       .map((r) => ({
         receta: r.receta, rol: r.rol,
-        factorIngredientes: r.cantidad * (r.receta.escala === 'ninguna' ? 1 : esc[r.receta.escala]),
-        vecesTiempo: 1, // los tiempos no escalan
+        factorIngredientes: r.cantidad * (!esc || r.receta.escala === 'ninguna' ? 1 : esc[r.receta.escala]),
+        vecesTiempo: 1, // los tiempos no escalan: se ajustan a mano en el presupuesto
       }));
   }
-  protected tiempoExtra(p: ProductoCalculable, o: OpcionesCalculo) {
-    // 20 cm es el tamaño de referencia: sus tiempos son los de las recetas y el armado, sin ajuste.
-    const tamano = o.tamano ?? 20;
-    const v = tamano === 20 ? undefined : p.variantes.find((x) => x.tamano === tamano);
-    return { trabajoMin: p.armadoMin + (v?.ajusteTrabajoMin ?? 0), hornoMin: v?.ajusteHornoMin ?? 0 };
-  }
+  protected tiempoExtra(p: ProductoCalculable) { return { trabajoMin: p.armadoMin, hornoMin: 0 }; }
   protected redondeo() { return this.ctx.redondeoTorta; }
-  protected referencia(_p: ProductoCalculable, o: OpcionesCalculo, precio: number) {
-    const porciones = ESCALA_TORTA[o.tamano ?? 20].porciones;
+  protected referencia(p: ProductoCalculable, o: OpcionesCalculo, precio: number) {
+    const porciones = escalaTorta(this.tamanoUsado(p, o) ?? TAMANO_REFERENCIA).porciones;
     return { porPorcion: precio / porciones[0], porciones, unidades: null, tandas: null };
   }
 }
@@ -175,6 +212,7 @@ export class CalculadoraMesaDulce extends CalculadoraProducto {
   protected tiempoExtra(p: ProductoCalculable, o: OpcionesCalculo) {
     return { trabajoMin: p.armadoMin + p.decoracionMinUnidad * this.unidades(o), hornoMin: 0 };
   }
+  protected vecesInsumosProducto(_p: ProductoCalculable, o: OpcionesCalculo) { return this.unidades(o); }
   protected redondeo() { return this.ctx.redondeoMesaDulce; }
   protected referencia(p: ProductoCalculable, o: OpcionesCalculo, precio: number) {
     const n = this.unidades(o);

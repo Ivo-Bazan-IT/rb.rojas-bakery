@@ -5,7 +5,7 @@ import { Area, Confirmar, Modal, PieFormulario, avisar, useModal } from '../comp
 import { useBorrarReceta, useGuardarReceta, useInsumos } from '../api/hooks';
 import type { Insumo, Receta } from '../api/tipos';
 import { leerNumero, num, pesosDec } from '../lib/formato';
-import { CATEGORIAS, SelectCaja, aTexto, ayudaMinutos, entero, nuevaClave } from './comun';
+import { CATEGORIAS, OpcionesInsumos, SelectCaja, aTexto, ayudaMinutos, entero, nuevaClave } from './comun';
 
 type Escala = Receta['escala'];
 const ESCALAS: { value: Escala; label: string }[] = [{ value: 'volumen', label: 'Volumen' }, { value: 'superficie', label: 'Superficie' }, { value: 'ninguna', label: 'No escala' }];
@@ -27,11 +27,6 @@ const aForm = (r?: Receta): Form => (r ? {
 } : { nombre: '', categoria: 'bizcochos', escala: 'volumen', rendimiento: '', trabajo: '', horno: '', notas: '', ingredientes: [filaIng()] });
 
 const costoDe = (ins: Insumo | undefined, cantidad: string) => (ins ? ins.costoUnitario * leerNumero(cantidad) : 0);
-
-/** Opciones de insumos (los archivados solo si ya estaban en la receta). */
-function OpcionesInsumos({ insumos, incluir }: { insumos: Insumo[]; incluir?: string }) {
-  return <>{insumos.filter((i) => !i.archivado || String(i.id) === incluir).map((i) => <option key={i.id} value={i.id}>{i.nombre} ({i.unidadUso})</option>)}</>;
-}
 
 /** Cuerpo para el back: los ingredientes van con su unidad de uso para que valide g / ml / u. */
 const ingredientesBody = (filas: { insumoId: string; cantidad: string }[], insumos: Insumo[]) => filas

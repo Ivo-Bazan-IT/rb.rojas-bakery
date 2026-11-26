@@ -21,7 +21,14 @@ const crear = z.object({
 export class RepositorioInsumos extends Repositorio<Insumo> {
   protected get modelo() { return this.db.insumo; }
   protected orden() { return { nombre: 'asc' }; }
-  usos(id: number) { return this.db.recetaIngrediente.count({ where: { insumoId: id } }); }
+  /** Recetas, productos y presupuestos que usan el insumo. */
+  async usos(id: number) {
+    const where = { insumoId: id };
+    const [r, p, q] = await Promise.all([
+      this.db.recetaIngrediente.count({ where }), this.db.productoInsumo.count({ where }), this.db.presupuestoInsumo.count({ where }),
+    ]);
+    return r + p + q;
+  }
 }
 
 export function insumoDominio(i: Insumo) {

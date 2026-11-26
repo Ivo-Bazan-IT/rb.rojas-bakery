@@ -17,10 +17,11 @@ function precioDesde(p: Producto) {
   if (!p.precios.length) return '—';
   const min = Math.min(...p.precios.map((x) => x.precio));
   if (p.tipo === 'mesa_dulce') return `$${num(p.precios[0]!.porPorcion! / 100, 2)} c/u`;
-  return p.tipo === 'torta' ? `desde ${pesos(min)}` : pesos(min);
+  const desde = p.precios.length > 1 ? 'desde ' : '';
+  return p.tipo === 'torta' && !p.recetaSinEscala ? `${desde}${pesos(min)} · 20 cm` : `${desde}${pesos(min)}`;
 }
 function detalleTipo(p: Producto) {
-  if (p.tipo === 'torta') return 'Torta · 18 / 20 / 22 cm';
+  if (p.tipo === 'torta') return p.recetaSinEscala ? 'Torta · tamaño único' : 'Torta · tamaño a elegir (ref. 20 cm)';
   if (p.tipo === 'budin') return `Budín · entero${p.porcionesMin ? ` · ${p.porcionesMin} porc.` : ''}`;
   return 'Mesa dulce · por unidad';
 }
@@ -36,14 +37,14 @@ function Detalle({ p, onEditar }: { p: Producto; onEditar: () => void }) {
 
   const tabla = (
     <Card as="section">
-      <h2>{p.tipo === 'torta' ? 'Precios por tamaño' : p.tipo === 'mesa_dulce' ? 'Precio de referencia' : 'Precio'}</h2>
+      <h2>{p.tipo === 'torta' && !p.recetaSinEscala ? 'Precio de referencia (20 cm)' : p.tipo === 'mesa_dulce' ? 'Precio de referencia' : 'Precio'}</h2>
       <ErrorMsg error={p.error} />
       <table className="tabla">
         <thead><tr><th>{p.tipo === 'mesa_dulce' ? 'Cantidad' : 'Tamaño'}</th><th>Porciones</th><th>Precio</th><th>{p.tipo === 'mesa_dulce' ? 'Por unidad' : 'Por porción'}</th></tr></thead>
         <tbody>
           {precios.map((x, i) => (
             <tr key={i}>
-              <td className="strong">{x.tamano ? `${x.tamano} cm` : x.cantidad ? `${x.cantidad} u` : 'Entero'}</td>
+              <td className="strong">{x.tamano ? `${x.tamano} cm` : x.cantidad ? `${x.cantidad} u` : p.tipo === 'torta' ? 'Único' : 'Entero'}</td>
               <td>{x.porciones ? `${x.porciones[0]}–${x.porciones[1]}` : '—'}</td>
               <td className="strong monto">{pesos(x.precio)}</td>
               <td>{x.porPorcion == null ? '—' : p.tipo === 'mesa_dulce' ? `$${num(x.porPorcion / 100, 2)}` : pesos(x.porPorcion)}</td>
@@ -51,19 +52,29 @@ function Detalle({ p, onEditar }: { p: Producto; onEditar: () => void }) {
           ))}
         </tbody>
       </table>
-      <p className="sec">{p.tipo === 'mesa_dulce' ? 'Calculado para 12 unidades. El presupuesto ajusta las tandas según la cantidad.' : 'Por porción = precio ÷ mínimo de porciones.'}</p>
+      <p className="sec">
+        {p.tipo === 'mesa_dulce' ? 'Calculado para 12 unidades. El presupuesto ajusta las tandas según la cantidad.'
+          : p.tipo === 'torta' && p.recetaSinEscala ? `Tamaño único: «${p.recetaSinEscala}» no escala, así que la torta tiene un solo precio.`
+            : p.tipo === 'torta' ? 'Otro tamaño se elige al presupuestar y el precio se escala desde 20 cm. Por porción = precio ÷ mínimo de porciones.'
+              : 'Por porción = precio ÷ mínimo de porciones.'}
+      </p>
     </Card>
   );
 
   const composicion = (
     <Card as="section">
-      <h2>Composición{p.tipo === 'torta' ? ' (20 cm)' : ''}</h2>
-      {recetas.length === 0 ? <p className="sec">Este producto todavía no tiene recetas base.</p> : (
+      <h2>Composición{p.tipo === 'torta' && !p.recetaSinEscala ? ' (20 cm)' : ''}</h2>
+      {recetas.length === 0 && p.insumos.length === 0 ? <p className="sec">Este producto todavía no tiene recetas base.</p> : (
         <div className="lista">
           {recetas.map((r) => (
             <ListItem key={r.id} icon="receta" title={r.nombre} detail={`${ROL[r.rol] ?? r.rol}${r.cantidad !== 1 ? ` · × ${num(r.cantidad, 2)}` : ''}`}
               value={<><span style={{ display: 'block' }}>{pesos(r.costo * r.cantidad)}</span>
                 <span className="sec" style={{ display: 'block', fontWeight: 600 }}>{duracion(r.trabajoMin)}{r.hornoMin ? ` · ${duracion(r.hornoMin)} horno` : ''}</span></>} to={`/recetas/${r.recetaId}`} />
+          ))}
+          {p.insumos.map((i) => (
+            <ListItem key={`i${i.id}`} icon="insumo" title={i.nombre}
+              detail={`Ingrediente suelto · ${num(i.cantidad, i.cantidad % 1 ? 2 : 0)} ${i.unidad}${p.tipo === 'mesa_dulce' ? ' por unidad' : ''}`}
+              value={pesos(i.costo)} to={`/insumos/${i.insumoId}`} />
           ))}
           <ListItem icon="reloj" title={p.tipo === 'mesa_dulce' ? 'Decoración por unidad' : 'Armado y decoración'} detail="Tiempo del producto"
             value={duracion(p.tipo === 'mesa_dulce' ? p.decoracionMinUnidad : p.armadoMin)} />

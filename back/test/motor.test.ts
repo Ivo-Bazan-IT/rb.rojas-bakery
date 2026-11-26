@@ -3,14 +3,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ContextoCostos, InsumoCosto, RecetaCosto, amortizacionMensual } from '../src/domain/costos.ts';
 import { CalculadoraBudin, CalculadoraMesaDulce, CalculadoraTorta, Cotizacion, type ProductoCalculable } from '../src/domain/calculadoras.ts';
-import { redondearArriba } from '../src/domain/valores.ts';
+import { escalaTorta, redondearArriba } from '../src/domain/valores.ts';
 import { DomainError } from '../src/domain/errores.ts';
 
 const $ = (pesos: number) => Math.round(pesos * 100);
 const cerca = (real: number, esperadoPesos: number) => assert.ok(Math.abs(real - $(esperadoPesos)) < 1, `${real / 100} ≠ ${esperadoPesos}`);
 
 const producto = (p: Partial<ProductoCalculable>): ProductoCalculable => ({
-  nombre: 'Prueba', tipo: 'torta', armadoMin: 0, decoracionMinUnidad: 0, porcionesMin: null, porcionesMax: null, recetas: [], variantes: [], ...p,
+  nombre: 'Prueba', tipo: 'torta', armadoMin: 0, decoracionMinUnidad: 0, porcionesMin: null, porcionesMax: null, recetas: [], ...p,
 });
 
 // ---------- Caso 1: alfajores de maicena ----------
@@ -160,16 +160,56 @@ test('avisa lo que falta cargar', () => {
   assert.equal(ctx.gastosPorHora, 0);
 });
 
-test('ajustes por tamaño: 18 y 22 cm suman o restan; 20 cm es la referencia y se ignora', () => {
+test('tamaño libre: 18, 20 y 22 cm conservan los factores; otros diámetros escalan por volumen y superficie', () => {
+  assert.deepEqual(escalaTorta(18), { volumen: 0.81, superficie: 0.88, porciones: [25, 28] });
+  assert.deepEqual(escalaTorta(20), { volumen: 1, superficie: 1, porciones: [30, 35] });
+  assert.deepEqual(escalaTorta(22), { volumen: 1.21, superficie: 1.12, porciones: [40, 45] });
+  const e24 = escalaTorta(24);
+  assert.equal(e24.volumen, 1.44);
+  assert.ok(e24.superficie > 1.12 && e24.superficie < e24.volumen);
+  assert.deepEqual(e24.porciones, [43, 50]);
+  assert.throws(() => escalaTorta(9), DomainError);
+  assert.throws(() => escalaTorta(20.5), DomainError);
   const calc = new CalculadoraTorta(ctxCaso2());
-  const conAjustes = { ...redVelvet, variantes: [
-    { tamano: 18, ajusteTrabajoMin: -10, ajusteHornoMin: -5 },
-    { tamano: 20, ajusteTrabajoMin: 90, ajusteHornoMin: 60 }, // dato mal cargado: no debe sumar
-    { tamano: 22, ajusteTrabajoMin: 15, ajusteHornoMin: 10 },
-  ] };
+  const r = calc.calcular(redVelvet, { tamano: 24, forrado: 'buttercream' });
+  cerca(r.ingredientes, (14200 + 9600) * 1.44 + 6800 * e24.superficie);
+  assert.equal(r.tamano, 24);
+  assert.equal(r.tamanoUnico, false);
+});
+
+test('tamaño único: si una receta no escala, la torta ignora el tamaño y usa las recetas tal cual', () => {
+  const calc = new CalculadoraTorta(ctxCaso2());
+  const conTopper = producto({ ...redVelvet, recetas: [...redVelvet.recetas,
+    { rol: 'base', cantidad: 1, receta: new RecetaCosto({ nombre: 'Topper de azúcar', escala: 'ninguna', trabajoMin: 0, hornoMin: 0, costo: $(1000) }) }] });
+  const a = calc.calcular(conTopper, { tamano: 18, forrado: 'buttercream' });
+  const b = calc.calcular(conTopper, { tamano: 22, forrado: 'buttercream' });
+  cerca(a.ingredientes, 14200 + 9600 + 6800 + 1000);
+  assert.equal(a.precio, b.precio);
+  assert.equal(a.tamano, null);
+  assert.equal(a.tamanoUnico, true);
+});
+
+test('ajustes de tiempo del presupuesto: suman o restan y nunca dejan tiempo negativo', () => {
+  const calc = new CalculadoraTorta(ctxCaso2());
   // 20 cm buttercream: 40 + 20 + 30 de recetas + 120 de armado = 210 min; horno 45.
-  const t = (tamano: 18 | 20 | 22) => calc.calcular(conAjustes, { tamano, forrado: 'buttercream' });
-  assert.deepEqual([t(20).trabajoMin, t(20).hornoMin], [210, 45]);
-  assert.deepEqual([t(18).trabajoMin, t(18).hornoMin], [200, 40]);
-  assert.deepEqual([t(22).trabajoMin, t(22).hornoMin], [225, 55]);
+  const t = (ajusteTrabajoMin: number, ajusteHornoMin: number) => calc.calcular(redVelvet, { tamano: 22, forrado: 'buttercream', ajusteTrabajoMin, ajusteHornoMin });
+  assert.deepEqual([t(0, 0).trabajoMin, t(0, 0).hornoMin], [210, 45]);
+  assert.deepEqual([t(15, 10).trabajoMin, t(15, 10).hornoMin], [225, 55]);
+  assert.deepEqual([t(-10, -100).trabajoMin, t(-10, -100).hornoMin], [200, 0]);
+});
+
+test('ingredientes sueltos: los del producto no escalan (en mesa dulce van por unidad) y los del presupuesto se suman', () => {
+  const ctx = ctxCaso2();
+  const caja = new InsumoCosto({ id: 90, nombre: 'Caja', unidad: 'unidad', presentacion: 1, precio: $(500) });
+  const frutillas = new InsumoCosto({ id: 91, nombre: 'Frutillas', unidad: 'kg', presentacion: 1, precio: $(4000) });
+  const torta = producto({ ...redVelvet, insumos: [{ insumo: caja, cantidad: 1 }] });
+  const base = new CalculadoraTorta(ctx).calcular(redVelvet, { tamano: 22, forrado: 'buttercream' });
+  const r = new CalculadoraTorta(ctx).calcular(torta, { tamano: 22, forrado: 'buttercream', insumosExtra: [{ insumo: frutillas, cantidad: 250 }] });
+  cerca(r.ingredientes - base.ingredientes, 500 + 1000);
+  assert.deepEqual(r.sueltos.map((x) => [x.nombre, x.cantidad, x.origen]), [['Caja', 1, 'producto'], ['Frutillas', 250, 'presupuesto']]);
+  assert.ok(r.insumos.some((i) => i.insumoId === 91 && i.cantidad === 250));
+
+  const pirotin = new InsumoCosto({ id: 92, nombre: 'Pirotín', unidad: 'unidad', presentacion: 100, precio: $(1000) });
+  const mesa = new CalculadoraMesaDulce(ctx).calcular(producto({ tipo: 'mesa_dulce', insumos: [{ insumo: pirotin, cantidad: 1 }] }), { cantidad: 30 });
+  cerca(mesa.ingredientes, 300); // 30 pirotines × $10
 });

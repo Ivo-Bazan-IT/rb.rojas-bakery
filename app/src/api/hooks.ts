@@ -3,7 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { api } from './cliente';
 import type {
   Configuracion, ContextoCostos, Cotizacion, Equipo, EstadoPedido, Extra, Gasto, Insumo, ListaCompra, Negocio, Pedido,
-  Presupuesto, Producto, Receta, Resumen, Usuario, ZonaEnvio,
+  InsumoSuelto, Presupuesto, Producto, Receta, Resumen, Usuario, ZonaEnvio,
 } from './tipos';
 
 // Todo lo que depende de costos se recalcula si cambia un insumo, una receta, un gasto o la configuración.
@@ -115,7 +115,10 @@ export function useGuardarConfiguracion() {
 }
 
 // ---------- Cotizador ----------
-export interface OpcionesCotizacion { productoId: number; tamano?: number | null; forrado?: string | null; cantidad?: number | null; extras: number[]; zonaEnvioId?: number | null }
+export interface OpcionesCotizacion {
+  productoId: number; tamano?: number | null; forrado?: string | null; cantidad?: number | null; extras: number[]; zonaEnvioId?: number | null;
+  insumos: InsumoSuelto[]; ajusteTrabajoMin: number; ajusteHornoMin: number;
+}
 
 export function useCotizacion(o: OpcionesCotizacion | null) {
   return useQuery({

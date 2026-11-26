@@ -74,6 +74,8 @@ model Insumo {
   updatedAt           DateTime            @updatedAt
   usos                RecetaIngrediente[]
   itemsCompra         ListaCompraItem[]
+  enProductos         ProductoInsumo[]
+  enPresupuestos      PresupuestoInsumo[]
 }
 
 model RecetaBase {
@@ -117,6 +119,7 @@ model Producto {
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
   recetas             ProductoReceta[]
+  insumos             ProductoInsumo[]
   variantes           ProductoVariante[]
   presupuestos        Presupuesto[]
 }
@@ -131,7 +134,21 @@ model ProductoReceta {
   receta     RecetaBase @relation(fields: [recetaId], references: [id])
 }
 
-/// Ajuste manual de tiempos por tamaño (los tiempos no escalan solos).
+/// Ingredientes sueltos del producto, además de las recetas base. No escalan con el tamaño;
+/// en mesa dulce la cantidad es por unidad.
+model ProductoInsumo {
+  id         Int      @id @default(autoincrement())
+  productoId Int
+  insumoId   Int
+  cantidad   Float // en g, ml o u según la unidad del insumo
+  producto   Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  insumo     Insumo   @relation(fields: [insumoId], references: [id])
+
+  @@unique([productoId, insumoId])
+}
+
+/// En desuso: el tamaño y sus ajustes de tiempo ahora se definen en cada presupuesto.
+/// Se conserva para no perder datos cargados antes.
 model ProductoVariante {
   id               Int      @id @default(autoincrement())
   productoId       Int
@@ -203,12 +220,14 @@ model Presupuesto {
   productoId        Int?
   productoNombre    String             @default("")
   tipoProducto      String? // torta | budin | mesa_dulce
-  tamano            Int?
+  tamano            Int? // tortas: diámetro en cm (20 = referencia); null en tamaño único
   forrado           String? // buttercream | pasta
   cantidad          Int? // mesa dulce: 4 a 36
   detalle           String             @default("")
   fotoReferenciaUrl String?
   zonaEnvioId       Int?
+  ajusteTrabajoMin  Int                @default(0) // ± minutos de trabajo para este pedido
+  ajusteHornoMin    Int                @default(0) // ± minutos de horno para este pedido
   precioProducto    Float              @default(0)
   total             Float              @default(0)
   senaPct           Float              @default(0)
@@ -224,7 +243,20 @@ model Presupuesto {
   updatedAt         DateTime           @updatedAt
   producto          Producto?          @relation(fields: [productoId], references: [id])
   lineas            PresupuestoLinea[]
+  insumos           PresupuestoInsumo[]
   pedido            Pedido?
+}
+
+/// Ingredientes sueltos que se suman solo a este presupuesto (cantidad fija).
+model PresupuestoInsumo {
+  id            Int         @id @default(autoincrement())
+  presupuestoId Int
+  insumoId      Int
+  cantidad      Float // en g, ml o u según la unidad del insumo
+  presupuesto   Presupuesto @relation(fields: [presupuestoId], references: [id], onDelete: Cascade)
+  insumo        Insumo      @relation(fields: [insumoId], references: [id])
+
+  @@unique([presupuestoId, insumoId])
 }
 
 model PresupuestoLinea {

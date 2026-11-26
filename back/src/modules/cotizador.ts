@@ -9,22 +9,39 @@ import { idRef } from '../core/esquemas.ts';
 import { ContextoCostos, amortizacionMensual } from '../domain/costos.ts';
 import { Cotizacion, calculadoraPara, type OpcionesCalculo, type ProductoCalculable, type ResultadoCalculo } from '../domain/calculadoras.ts';
 import { DomainError } from '../domain/errores.ts';
-import { FORRADOS, TAMANOS, type HorasGasto, type RolReceta, type Tamano, type TipoProducto } from '../domain/valores.ts';
+import { FORRADOS, TAMANO_MAX, TAMANO_MIN, TAMANO_REFERENCIA, type HorasGasto, type RolReceta, type TipoProducto } from '../domain/valores.ts';
 import { recetaDominio } from './recetas.ts';
+import { insumoDominio } from './insumos.ts';
 
 export const incluirProductoCalculo = {
   recetas: { include: { receta: { include: { ingredientes: { include: { insumo: true } } } } }, orderBy: { id: 'asc' } },
-  variantes: true,
+  insumos: { include: { insumo: true }, orderBy: { id: 'asc' } },
 } satisfies Prisma.ProductoInclude;
 export type ProductoConRecetas = Prisma.ProductoGetPayload<{ include: typeof incluirProductoCalculo }>;
 
+/** Diámetro de una torta en cm. */
+export const tamanoTorta = z.number().int('tiene que ser un número entero de cm')
+  .min(TAMANO_MIN, `tiene que ser de ${TAMANO_MIN} cm o más`).max(TAMANO_MAX, `tiene que ser de ${TAMANO_MAX} cm o menos`);
+/** Ingrediente suelto (producto o presupuesto): insumo + cantidad en g, ml o u. */
+export const insumoSuelto = z.object({ insumoId: idRef, cantidad: z.number().positive('tiene que ser mayor que 0') });
+/** ± minutos para un pedido puntual. */
+export const ajusteMin = z.number().int().min(-24 * 60).max(24 * 60 * 7);
+
+/** No se repite un insumo en la misma lista: se suman las cantidades en una fila. */
+export function sinRepetidos(lista: { insumoId: number }[]) {
+  if (new Set(lista.map((i) => i.insumoId)).size !== lista.length) throw new DatosInvalidos('Hay un ingrediente repetido. Sumá las cantidades en una sola fila.');
+}
+
 export const esquemaOpciones = z.object({
   productoId: idRef,
-  tamano: z.literal([...TAMANOS]).optional(),
+  tamano: tamanoTorta.optional(),
   forrado: z.enum(FORRADOS).optional(),
   cantidad: z.number().int().optional(),
   extras: z.array(idRef).default([]),
   zonaEnvioId: idRef.nullable().optional(),
+  insumos: z.array(insumoSuelto).default([]),
+  ajusteTrabajoMin: ajusteMin.default(0),
+  ajusteHornoMin: ajusteMin.default(0),
 });
 export type OpcionesCotizacion = z.infer<typeof esquemaOpciones>;
 
@@ -62,7 +79,7 @@ export class Cotizador {
       nombre: p.nombre, tipo: p.tipo as TipoProducto, armadoMin: p.armadoMin, decoracionMinUnidad: p.decoracionMinUnidad,
       porcionesMin: p.porcionesMin, porcionesMax: p.porcionesMax,
       recetas: p.recetas.map((r) => ({ receta: recetaDominio(r.receta), rol: r.rol as RolReceta, cantidad: r.cantidad })),
-      variantes: p.variantes,
+      insumos: p.insumos.map((i) => ({ insumo: insumoDominio(i.insumo), cantidad: i.cantidad })),
     };
   }
 
@@ -75,13 +92,16 @@ export class Cotizador {
     }
   }
 
-  /** Precios del catálogo para mostrar (tortas: los 3 tamaños; mesa dulce: 12 unidades de referencia). */
+  /** Precios del catálogo para mostrar (tortas: 20 cm de referencia, o su tamaño único; mesa dulce: 12 unidades). */
   preciosCatalogo(p: ProductoConRecetas, ctx: ContextoCostos) {
     const tipo = p.tipo as TipoProducto;
     if (tipo === 'torta') {
       const forrados = FORRADOS.filter((f) => p.recetas.some((r) => r.rol === `forrado_${f}`));
       const opciones = forrados.length ? forrados : [undefined];
-      return opciones.flatMap((forrado) => TAMANOS.map((tamano) => ({ tamano, forrado: forrado ?? null, ...this.resumen(this.calcularProducto(p, { tamano, forrado }, ctx)) })));
+      return opciones.map((forrado) => {
+        const c = this.calcularProducto(p, { tamano: TAMANO_REFERENCIA, forrado }, ctx);
+        return { tamano: c.tamano, forrado: forrado ?? null, ...this.resumen(c) };
+      });
     }
     if (tipo === 'mesa_dulce') return [{ cantidad: 12, ...this.resumen(this.calcularProducto(p, { cantidad: 12 }, ctx)) }];
     return [this.resumen(this.calcularProducto(p, {}, ctx))];
@@ -99,15 +119,26 @@ export class Cotizador {
 
   /** Cotización completa: producto + extras + envío, con seña y saldo. */
   async cotizar(o: OpcionesCotizacion): Promise<ResultadoCotizacion> {
-    const [p, ctx, extras, envio] = await Promise.all([
+    sinRepetidos(o.insumos);
+    const ids = o.insumos.map((i) => i.insumoId);
+    const [p, ctx, extras, envio, insumos] = await Promise.all([
       this.productoConRecetas(o.productoId),
       this.contexto(),
       o.extras.length ? this.db.extra.findMany({ where: { id: { in: o.extras } } }) : Promise.resolve([]),
       o.zonaEnvioId ? this.db.zonaEnvio.findUnique({ where: { id: o.zonaEnvioId } }) : Promise.resolve(null),
+      ids.length ? this.db.insumo.findMany({ where: { id: { in: ids } } }) : Promise.resolve([]),
     ]);
+    const insumosExtra = o.insumos.map((i) => {
+      const ins = insumos.find((x) => x.id === i.insumoId);
+      if (!ins) throw new NoEncontrado('Uno de los ingredientes');
+      return { insumo: insumoDominio(ins), cantidad: i.cantidad };
+    });
     if (o.zonaEnvioId && !envio) throw new NoEncontrado('La zona de envío');
     if (envio && envio.precio == null && !envio.esRetiro) throw new DatosInvalidos(`Falta cargar el precio del envío a ${envio.nombre} en Costos y ajustes → Tarifarios.`);
-    const calculo = this.calcularProducto(p, { tamano: o.tamano as Tamano | undefined, forrado: o.forrado, cantidad: o.cantidad }, ctx);
+    const calculo = this.calcularProducto(p, {
+      tamano: o.tamano, forrado: o.forrado, cantidad: o.cantidad, insumosExtra,
+      ajusteTrabajoMin: o.ajusteTrabajoMin, ajusteHornoMin: o.ajusteHornoMin,
+    }, ctx);
     const env = envio ? { id: envio.id, nombre: envio.nombre, precio: envio.precio ?? 0, esRetiro: envio.esRetiro } : null;
     const cot = new Cotizacion({ precioProducto: calculo.precio, extras, envio: env, senaPct: ctx.senaPct });
     return {

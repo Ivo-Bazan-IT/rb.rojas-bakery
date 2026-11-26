@@ -7,27 +7,38 @@ import { CampoFoto } from '../components/CampoFoto';
 import { ConfirmarCancelar, ConfirmarEliminar } from '../modales/ConfirmarPresupuesto';
 import { Confirmar, avisar, useModal } from '../components/Modal';
 import {
-  useAccionPresupuesto, useCotizacion, useEnvios, useExtras, useGuardarPresupuesto, usePresupuesto, useProductos,
+  useAccionPresupuesto, useCotizacion, useEnvios, useExtras, useGuardarPresupuesto, useInsumos, usePresupuesto, useProductos,
 } from '../api/hooks';
-import type { Forrado, Presupuesto as P, Tamano } from '../api/tipos';
-import { duracion, num, pesos } from '../lib/formato';
+import { TAMANO_MAX, TAMANO_MIN, TAMANO_REFERENCIA, type Forrado, type Presupuesto as P } from '../api/tipos';
+import { duracion, leerNumero, num, pesos, pesosDec } from '../lib/formato';
+import { EditorSueltos, aFilasSueltos, hayRepetidos, sueltosBody, type FilaSuelto } from '../modales/comun';
 
-const PORCIONES: Record<Tamano, string> = { 18: '25–28', 20: '30–35', 22: '40–45' };
+/** Tamaños habituales. Cualquier otro se escribe a mano. */
+const SUGERIDOS = [18, 20, 22];
 
 interface Form {
   clienteNombre: string; clienteTelefono: string; direccion: string; fechaEntrega: string; horaEntrega: string;
-  productoId: number | null; tamano: Tamano; forrado: Forrado | null; cantidad: number; detalle: string;
-  extras: number[]; zonaEnvioId: number | null;
+  productoId: number | null; tamano: string; forrado: Forrado | null; cantidad: number; detalle: string;
+  extras: number[]; zonaEnvioId: number | null; insumos: FilaSuelto[]; ajusteTrabajo: string; ajusteHorno: string;
 }
 const VACIO: Form = {
   clienteNombre: '', clienteTelefono: '', direccion: '', fechaEntrega: '', horaEntrega: '',
-  productoId: null, tamano: 20, forrado: null, cantidad: 12, detalle: '', extras: [], zonaEnvioId: null,
+  productoId: null, tamano: String(TAMANO_REFERENCIA), forrado: null, cantidad: 12, detalle: '', extras: [], zonaEnvioId: null,
+  insumos: [], ajusteTrabajo: '', ajusteHorno: '',
 };
 const desde = (p: P): Form => ({
   clienteNombre: p.clienteNombre, clienteTelefono: p.clienteTelefono, direccion: p.direccion, fechaEntrega: p.fechaEntrega ?? '',
-  horaEntrega: p.horaEntrega, productoId: p.productoId, tamano: p.tamano ?? 20, forrado: p.forrado, cantidad: p.cantidad ?? 12,
+  horaEntrega: p.horaEntrega, productoId: p.productoId, tamano: String(p.tamano ?? TAMANO_REFERENCIA), forrado: p.forrado, cantidad: p.cantidad ?? 12,
   detalle: p.detalle, extras: p.calculo?.extras?.map((e) => e.id) ?? [], zonaEnvioId: p.zonaEnvioId,
+  insumos: aFilasSueltos(p.insumos ?? []), ajusteTrabajo: p.ajusteTrabajoMin ? String(p.ajusteTrabajoMin) : '', ajusteHorno: p.ajusteHornoMin ? String(p.ajusteHornoMin) : '',
 });
+/** "-10" → −10 minutos. Vacío = 0. */
+const ajusteNum = (s: string) => Math.round(leerNumero(s.replace(/^\s*-/, ''))) * (s.trim().startsWith('-') ? -1 : 1);
+/** Diámetro válido (entero de 10 a 40 cm) o null. */
+const leerTamano = (s: string) => {
+  const n = Number(s.trim());
+  return Number.isInteger(n) && n >= TAMANO_MIN && n <= TAMANO_MAX ? n : null;
+};
 
 export default function Presupuesto() {
   const { id: idParam } = useParams();
@@ -38,6 +49,7 @@ export default function Presupuesto() {
   const productos = useProductos();
   const extras = useExtras();
   const envios = useEnvios();
+  const insumos = useInsumos();
   const guardar = useGuardarPresupuesto();
   const enviar = useAccionPresupuesto('enviar');
   const duplicar = useAccionPresupuesto('duplicar');
@@ -69,23 +81,34 @@ export default function Presupuesto() {
   const producto = productos.data?.find((p) => p.id === f.productoId) ?? null;
   const forrados = (['buttercream', 'pasta'] as Forrado[]).filter((x) => producto?.recetas.some((r) => r.rol === `forrado_${x}`));
   const bloqueado = !!existente.data && existente.data.estado !== 'borrador';
+  // Torta con una receta que no escala: un solo tamaño, no se pregunta.
+  const conTamano = producto?.tipo === 'torta' && !producto.recetaSinEscala;
+  const tamano = leerTamano(f.tamano);
+  const tamanoInvalido = conTamano && tamano == null;
+  const repetido = hayRepetidos(f.insumos);
+  const sueltos = useMemo(() => sueltosBody(f.insumos), [f.insumos]);
 
-  const opciones = useMemo(() => (producto ? {
+  const opciones = useMemo(() => (producto && !tamanoInvalido && !repetido ? {
     productoId: producto.id,
-    tamano: producto.tipo === 'torta' ? f.tamano : null,
+    tamano: conTamano ? tamano : null,
     forrado: producto.tipo === 'torta' ? (f.forrado ?? forrados[0] ?? null) : null,
     cantidad: producto.tipo === 'mesa_dulce' ? f.cantidad : null,
     extras: f.extras, zonaEnvioId: f.zonaEnvioId,
-  } : null), [producto, f.tamano, f.forrado, f.cantidad, f.extras, f.zonaEnvioId, forrados]);
+    insumos: sueltos, ajusteTrabajoMin: ajusteNum(f.ajusteTrabajo), ajusteHornoMin: ajusteNum(f.ajusteHorno),
+  } : null), [producto, conTamano, tamano, tamanoInvalido, repetido, f.forrado, f.cantidad, f.extras, f.zonaEnvioId, forrados, sueltos, f.ajusteTrabajo, f.ajusteHorno]);
   const cot = useCotizacion(bloqueado ? null : opciones);
   const c = cot.data;
 
-  const cuerpo = () => ({
-    ...f, fechaEntrega: f.fechaEntrega || null, productoId: f.productoId,
-    tamano: producto?.tipo === 'torta' ? f.tamano : null,
-    forrado: producto?.tipo === 'torta' ? (f.forrado ?? forrados[0] ?? null) : null,
-    cantidad: producto?.tipo === 'mesa_dulce' ? f.cantidad : null,
-  });
+  const cuerpo = () => {
+    const { insumos: _filas, ajusteTrabajo, ajusteHorno, tamano: _t, ...resto } = f;
+    return {
+      ...resto, fechaEntrega: f.fechaEntrega || null, productoId: f.productoId,
+      tamano: conTamano ? tamano : null,
+      forrado: producto?.tipo === 'torta' ? (f.forrado ?? forrados[0] ?? null) : null,
+      cantidad: producto?.tipo === 'mesa_dulce' ? f.cantidad : null,
+      insumos: sueltos, ajusteTrabajoMin: ajusteNum(ajusteTrabajo), ajusteHornoMin: ajusteNum(ajusteHorno),
+    };
+  };
   const onGuardar = () => guardar.mutate({ id, ...cuerpo() }, { onSuccess: (p) => { avisar('Presupuesto guardado'); if (!id) navigate(`/presupuestos/${p.id}`, { replace: true }); } });
   const confirmarPdf = useModal();
   const onPdf = () => {
@@ -98,7 +121,7 @@ export default function Presupuesto() {
     navigate(`/presupuestos/${p.id}/pdf`);
   };
   const onDuplicar = () => duplicar.mutate(id!, { onSuccess: (p) => { avisar(`Copia creada: #${p.numeroLabel}`); navigate(`/presupuestos/${p.id}`); } });
-  const ocupado = guardar.isPending || enviar.isPending;
+  const ocupado = guardar.isPending || enviar.isPending || (!bloqueado && (tamanoInvalido || repetido));
   const numero = existente.data ? `#${existente.data.numeroLabel}` : 'Nuevo';
   const titulo = id ? `Presupuesto ${numero}` : 'Nuevo presupuesto';
 
@@ -141,15 +164,22 @@ export default function Presupuesto() {
           }}
           options={[{ value: '', label: 'Elegí un producto' }, ...(productos.data ?? []).map((p) => ({ value: String(p.id), label: `${p.nombre} · ${p.tipoLabel}` }))]} />
       )}
-      {producto?.tipo === 'torta' && (
+      {conTamano && (
         <div className="field">
           <span className="field__label">Tamaño</span>
           <div className="chips" role="group" aria-label="Tamaño">
-            {([18, 20, 22] as Tamano[]).map((t) => (
-              <Chip key={t} active={f.tamano === t} onClick={() => !bloqueado && set({ tamano: t })}>{t} cm · {PORCIONES[t]} porc.</Chip>
+            {SUGERIDOS.map((t) => (
+              <Chip key={t} active={tamano === t} onClick={() => !bloqueado && set({ tamano: String(t) })}>{t} cm{t === TAMANO_REFERENCIA ? ' · referencia' : ''}</Chip>
             ))}
           </div>
+          <Field id="c9" label="Diámetro" type="number" min={TAMANO_MIN} max={TAMANO_MAX} suffix="cm" inputMode="numeric" value={f.tamano} disabled={bloqueado}
+            help={tamanoInvalido ? `Escribí un número entero de ${TAMANO_MIN} a ${TAMANO_MAX} cm.`
+              : `Las recetas están cargadas para ${TAMANO_REFERENCIA} cm; el precio se escala al diámetro elegido.${c?.calculo.porciones ? ` Rinde ${c.calculo.porciones[0]}–${c.calculo.porciones[1]} porciones.` : ''}`}
+            onChange={(e) => set({ tamano: e.target.value })} />
         </div>
+      )}
+      {producto?.tipo === 'torta' && producto.recetaSinEscala && (
+        <p className="sec">Tamaño único: «{producto.recetaSinEscala}» no escala, así que esta torta tiene un solo precio.</p>
       )}
       {producto?.tipo === 'torta' && forrados.length > 1 && (
         <div className="field">
@@ -172,6 +202,25 @@ export default function Presupuesto() {
             })}
           </div>
         ) : <span className="sec">No hay extras cargados. Se agregan en Costos y ajustes → Tarifarios.</span>}
+      </div>
+    </Card>
+  );
+
+  const ajustes = producto && (
+    <Card as="section">
+      <h2>Ajustes para este pedido</h2>
+      <div className="field">
+        <span className="field__label">Ingredientes extra</span>
+        <p className="field__ayuda">Lo que este pedido lleva de más (frutas, decoración, otro relleno…). Se suma al costo de ingredientes, con tu margen.</p>
+        {insumos.data?.length === 0 && <p className="sec">Todavía no hay insumos cargados.</p>}
+        <EditorSueltos filas={f.insumos} onChange={(insumos) => set({ insumos })} insumos={insumos.data ?? []} disabled={bloqueado} textoTotal="Ingredientes extra" />
+      </div>
+      <div className="form-grid">
+        <Field id="c10" label="Trabajo (± min)" inputMode="numeric" placeholder="0" value={f.ajusteTrabajo} disabled={bloqueado}
+          help="Diferencia con el tiempo del producto. Ej.: 30, o −15." onChange={(e) => set({ ajusteTrabajo: e.target.value })} />
+        <Field id="c11" label="Horno (± min)" inputMode="numeric" placeholder="0" value={f.ajusteHorno} disabled={bloqueado}
+          help={conTamano && tamano !== TAMANO_REFERENCIA ? 'Un tamaño distinto de 20 cm suele tardar más o menos.' : undefined}
+          onChange={(e) => set({ ajusteHorno: e.target.value })} />
       </div>
     </Card>
   );
@@ -215,7 +264,10 @@ export default function Presupuesto() {
         <>
           <Avisos avisos={k.avisos} />
           <div className="desglose">
-            <div className="fila"><span>Ingredientes</span><span>{pesos(k.ingredientes)}</span></div>
+            <div className="fila"><span>Ingredientes{k.tamano ? ` (${k.tamano} cm)` : k.tamanoUnico ? ' (tamaño único)' : ''}</span><span>{pesos(k.ingredientes)}</span></div>
+            {k.sueltos?.filter((x) => x.origen === 'presupuesto').map((x) => (
+              <div className="fila sec-14" key={`s${x.insumoId}`}><span>· incluye {x.nombre} ({num(x.cantidad, x.cantidad % 1 ? 2 : 0)} {x.unidad})</span><span>{pesosDec(x.costo)}</span></div>
+            ))}
             <div className="fila"><span>Servicios: luz, gas, agua ({duracion(k.trabajoMin)} trabajo · {duracion(k.hornoMin)} horno)</span><span>{pesos(k.servicios)}</span></div>
             <div className="fila"><span>Gastos del negocio</span><span>{pesos(k.gastosNegocio)}</span></div>
             <div className="fila"><span>Mano de obra ({duracion(k.trabajoMin)}{k.trabajoMin > 0 && k.manoDeObra > 0 ? ` × ${pesos(k.manoDeObra / (k.trabajoMin / 60))} la hora` : ''})</span><span>{pesos(k.manoDeObra)}</span></div>
@@ -284,7 +336,7 @@ export default function Presupuesto() {
         <ErrorMsg error={guardar.error ?? enviar.error ?? duplicar.error ?? reactivar.error} />
         <div className="presu-cols">
           <div className="col presu-form" style={{ gap: 'var(--rb-space-6)' }}>
-            {cliente}{productoCard}{detalle}
+            {cliente}{productoCard}{ajustes}{detalle}
           </div>
           <div className="col presu-lado" style={{ gap: 'var(--rb-space-6)' }}>
             {calculo}{foto}

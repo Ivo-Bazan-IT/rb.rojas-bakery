@@ -1,13 +1,14 @@
 /* Presupuestos: borrador editable → enviado (snapshot congelado, PDF) → convertido en pedido.
    Un enviado se puede cancelar (el cliente no siguió) y reactivar; también se puede eliminar si no es pedido. */
 import { z } from 'zod';
-import type { Prisma, Presupuesto, PresupuestoLinea, Pedido } from '@prisma/client';
+import type { Insumo, Prisma, Presupuesto, PresupuestoInsumo, PresupuestoLinea, Pedido } from '@prisma/client';
 import type { Db } from '../core/db.ts';
 import { Controlador } from '../core/Controlador.ts';
 import { Conflicto, DatosInvalidos, NoEncontrado } from '../core/errores.ts';
 import { idRef, texto } from '../core/esquemas.ts';
-import { FORRADOS, TAMANOS } from '../domain/valores.ts';
-import type { Cotizador } from './cotizador.ts';
+import { FORRADOS } from '../domain/valores.ts';
+import { ajusteMin, insumoSuelto, tamanoTorta, type Cotizador } from './cotizador.ts';
+import { insumoDominio } from './insumos.ts';
 
 /** Fecha sin hora "AAAA-MM-DD". Se guarda a las 12:00 UTC para que no cambie de día por la zona horaria. */
 export const fechaDia = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'usá el formato AAAA-MM-DD').transform((s) => new Date(`${s}T12:00:00Z`));
@@ -20,18 +21,23 @@ const esquema = z.object({
   fechaEntrega: fechaDia.nullable().optional(),
   horaEntrega: z.string().regex(/^(\d{2}:\d{2})?$/, 'usá el formato HH:MM').default(''),
   productoId: idRef.nullable().optional(),
-  tamano: z.literal([...TAMANOS]).nullable().optional(),
+  tamano: tamanoTorta.nullable().optional(),
   forrado: z.enum(FORRADOS).nullable().optional(),
   cantidad: z.number().int().nullable().optional(),
   detalle: texto(2000).default(''),
   fotoReferenciaUrl: z.string().nullable().optional(),
   extras: z.array(idRef).default([]),
   zonaEnvioId: idRef.nullable().optional(),
+  insumos: z.array(insumoSuelto).default([]),
+  ajusteTrabajoMin: ajusteMin.default(0),
+  ajusteHornoMin: ajusteMin.default(0),
 });
 type Datos = z.infer<typeof esquema>;
 
-const incluir = { lineas: { orderBy: { orden: 'asc' } }, pedido: true } satisfies Prisma.PresupuestoInclude;
-type PresupuestoCompleto = Presupuesto & { lineas: PresupuestoLinea[]; pedido: Pedido | null };
+const incluir = {
+  lineas: { orderBy: { orden: 'asc' } }, pedido: true, insumos: { include: { insumo: true }, orderBy: { id: 'asc' } },
+} satisfies Prisma.PresupuestoInclude;
+type PresupuestoCompleto = Presupuesto & { lineas: PresupuestoLinea[]; pedido: Pedido | null; insumos: (PresupuestoInsumo & { insumo: Insumo })[] };
 
 export const numeroLabel = (n: number) => String(n).padStart(4, '0');
 
@@ -55,17 +61,21 @@ export class ServicioPresupuestos {
       clienteNombre: d.clienteNombre, clienteTelefono: d.clienteTelefono, direccion: d.direccion,
       fechaEntrega: d.fechaEntrega ?? null, horaEntrega: d.horaEntrega, detalle: d.detalle, fotoReferenciaUrl: d.fotoReferenciaUrl ?? null,
       zonaEnvioId: d.zonaEnvioId ?? null, tamano: d.tamano ?? null, forrado: d.forrado ?? null, cantidad: d.cantidad ?? null,
+      ajusteTrabajoMin: d.ajusteTrabajoMin ?? 0, ajusteHornoMin: d.ajusteHornoMin ?? 0,
     };
+    const insumos = (d.insumos ?? []).map((i) => ({ insumoId: i.insumoId, cantidad: i.cantidad }));
     if (!d.productoId) {
       return { ...base, productoId: null, productoNombre: '', tipoProducto: null, precioProducto: 0, total: 0, sena: 0, saldo: 0, senaPct: 0,
-        porPorcion: null, porcionesMin: null, porcionesMax: null, calculo: '{}', lineas: [] as Omit<PresupuestoLinea, 'id' | 'presupuestoId'>[] };
+        porPorcion: null, porcionesMin: null, porcionesMax: null, calculo: '{}', lineas: [] as Omit<PresupuestoLinea, 'id' | 'presupuestoId'>[], insumos };
     }
     const c = await this.cotizador.cotizar({
       productoId: d.productoId, tamano: d.tamano ?? undefined, forrado: d.forrado ?? undefined, cantidad: d.cantidad ?? undefined,
       extras: d.extras ?? [], zonaEnvioId: d.zonaEnvioId ?? null,
+      insumos, ajusteTrabajoMin: d.ajusteTrabajoMin ?? 0, ajusteHornoMin: d.ajusteHornoMin ?? 0,
     });
     const t = c.producto.tipo;
-    const nombreLinea = t === 'torta' ? `${c.producto.nombre} · ${d.tamano ?? 20} cm`
+    // Torta de tamaño único: sin diámetro en la línea.
+    const nombreLinea = t === 'torta' ? (c.calculo.tamano ? `${c.producto.nombre} · ${c.calculo.tamano} cm` : c.producto.nombre)
       : t === 'mesa_dulce' ? `${c.producto.nombre} × ${c.calculo.unidades}` : c.producto.nombre;
     const lineas = [
       { tipo: 'producto', descripcion: nombreLinea, precio: c.calculo.precio, orden: 0 },
@@ -74,21 +84,22 @@ export class ServicioPresupuestos {
     ];
     return {
       ...base, productoId: c.producto.id, productoNombre: c.producto.nombre, tipoProducto: t,
-      forrado: t === 'torta' ? (d.forrado ?? null) : null, tamano: t === 'torta' ? (d.tamano ?? 20) : null, cantidad: t === 'mesa_dulce' ? c.calculo.unidades : null,
+      forrado: t === 'torta' ? (d.forrado ?? null) : null, tamano: t === 'torta' ? c.calculo.tamano : null, cantidad: t === 'mesa_dulce' ? c.calculo.unidades : null,
       precioProducto: c.calculo.precio, total: c.total, senaPct: c.senaPct, sena: c.sena, saldo: c.saldo,
       porPorcion: c.calculo.porPorcion != null ? Math.round(c.calculo.porPorcion) : null,
       porcionesMin: c.calculo.porciones?.[0] ?? null, porcionesMax: c.calculo.porciones?.[1] ?? null,
       // Costos internos y parámetros congelados. Nunca salen en el PDF.
       calculo: JSON.stringify({ ...c.calculo, extras: c.extras, envio: c.envio, contexto: c.contexto }),
-      lineas,
+      lineas, insumos,
     };
   }
 
   private dto(p: PresupuestoCompleto, conCalculo = true) {
     const vencido = p.estado === 'enviado' && p.validoHasta != null && p.validoHasta.getTime() < Date.now();
-    const { calculo, ...resto } = p;
+    const { calculo, insumos, ...resto } = p;
     return {
       ...resto,
+      insumos: insumos.map((i) => ({ insumoId: i.insumoId, nombre: i.insumo.nombre, cantidad: i.cantidad, unidad: insumoDominio(i.insumo).unidadUso })),
       numeroLabel: numeroLabel(p.numero),
       estadoVista: vencido ? 'vencido' : p.estado,
       fechaEntrega: diaISO(p.fechaEntrega),
@@ -115,10 +126,10 @@ export class ServicioPresupuestos {
 
   async crear(body: unknown) {
     const d = this.validar(body);
-    const { lineas, ...campos } = await this.snapshot(d);
+    const { lineas, insumos, ...campos } = await this.snapshot(d);
     const ultimo = await this.db.presupuesto.aggregate({ _max: { numero: true } });
     const p = await this.db.presupuesto.create({
-      data: { ...campos, numero: (ultimo._max.numero ?? 0) + 1, lineas: { create: lineas } }, include: incluir,
+      data: { ...campos, numero: (ultimo._max.numero ?? 0) + 1, lineas: { create: lineas }, insumos: { create: insumos } }, include: incluir,
     });
     return this.dto(p);
   }
@@ -132,11 +143,13 @@ export class ServicioPresupuestos {
       tamano: actual.tamano as Datos['tamano'], forrado: actual.forrado as Datos['forrado'], cantidad: actual.cantidad, detalle: actual.detalle,
       fotoReferenciaUrl: actual.fotoReferenciaUrl, zonaEnvioId: actual.zonaEnvioId,
       extras: JSON.parse(actual.calculo || '{}').extras?.map((e: { id: number }) => e.id) ?? [],
+      insumos: actual.insumos.map((i) => ({ insumoId: i.insumoId, cantidad: i.cantidad })),
+      ajusteTrabajoMin: actual.ajusteTrabajoMin, ajusteHornoMin: actual.ajusteHornoMin,
     };
     const d = { ...previo, ...this.validar(body, true) };
-    const { lineas, ...campos } = await this.snapshot(d);
+    const { lineas, insumos, ...campos } = await this.snapshot(d);
     const p = await this.db.presupuesto.update({
-      where: { id }, data: { ...campos, lineas: { deleteMany: {}, create: lineas } }, include: incluir,
+      where: { id }, data: { ...campos, lineas: { deleteMany: {}, create: lineas }, insumos: { deleteMany: {}, create: insumos } }, include: incluir,
     });
     return this.dto(p);
   }
@@ -190,6 +203,8 @@ export class ServicioPresupuestos {
       clienteNombre: p.clienteNombre, clienteTelefono: p.clienteTelefono, direccion: p.direccion,
       fechaEntrega: diaISO(p.fechaEntrega), horaEntrega: p.horaEntrega, productoId: p.productoId, tamano: p.tamano, forrado: p.forrado,
       cantidad: p.cantidad, detalle: p.detalle, fotoReferenciaUrl: p.fotoReferenciaUrl, extras, zonaEnvioId: p.zonaEnvioId,
+      insumos: p.insumos.map((i) => ({ insumoId: i.insumoId, cantidad: i.cantidad })),
+      ajusteTrabajoMin: p.ajusteTrabajoMin, ajusteHornoMin: p.ajusteHornoMin,
     });
   }
 
